@@ -382,10 +382,7 @@ namespace SignalSafetyMenu
             if (!string.IsNullOrEmpty(notifyText))
             {
                 LastReporter = notifyText;
-                int sepCount = 0;
-                int idx = 0;
-                while ((idx = notifyText.IndexOf(" & ", idx, StringComparison.Ordinal)) >= 0) { sepCount++; idx += 3; }
-                NearbyCount = sepCount + 1;
+                NearbyCount = notifyText.Split(new string[] { " & " }, StringSplitOptions.None).Length;
             }
             else
             {
@@ -494,12 +491,11 @@ namespace SignalSafetyMenu
 
                     if (rpcName == "RPC_PlayHandTap" && (int)args[0] == 67)
                     {
+                        if (PhotonNetwork.NetworkingClient?.CurrentRoom == null) return;
+                        var clicker = PhotonNetwork.NetworkingClient.CurrentRoom.GetPlayer(data.Sender, false);
+                        if (clicker == null) return;
                         buttonClickTime = Time.unscaledTime;
-                        var room = PhotonNetwork.NetworkingClient?.CurrentRoom;
-                        if (room == null) return;
-                        var sender = room.GetPlayer(data.Sender, false);
-                        if (sender == null) return;
-                        buttonClickPlayer = sender.UserId;
+                        buttonClickPlayer = clicker.UserId;
                     }
                 }
             }
@@ -519,9 +515,8 @@ namespace SignalSafetyMenu
 
                     if (rpcName == "RPC_PlayHandTap" && (int)args[0] == 67)
                     {
-                        var room = PhotonNetwork.NetworkingClient?.CurrentRoom;
-                        if (room == null) return;
-                        var sender = room.GetPlayer(data.Sender, false);
+                        if (PhotonNetwork.NetworkingClient?.CurrentRoom == null) return;
+                        var sender = PhotonNetwork.NetworkingClient.CurrentRoom.GetPlayer(data.Sender, false);
                         if (sender == null) return;
                         VRRig senderRig = null;
 
@@ -634,10 +629,8 @@ namespace SignalSafetyMenu
 
             if (SafetyConfig.AntiReportEnabled)
             {
-                DisableSmartAntiReport();
-                DisableAntiOculusReport();
-                EnableSmartAntiReport();
-                EnableAntiOculusReport();
+                if (!smartReportEnabled) EnableSmartAntiReport();
+                if (!oculusReportEnabled) EnableAntiOculusReport();
             }
         }
     }

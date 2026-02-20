@@ -51,11 +51,6 @@ namespace SignalSafetyMenu.Patches
             catch { }
         }
 
-        private static readonly HashSet<string> _safePropertyKeys = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "didTutorial", "mods", "modVector", "cyansig"
-        };
-
         public static void BypassModCheckers()
         {
             try
@@ -66,7 +61,7 @@ namespace SignalSafetyMenu.Patches
                 foreach (var key in localPlayer.CustomProperties.Keys)
                 {
                     string k = key?.ToString();
-                    if (k != null && !_safePropertyKeys.Contains(k))
+                    if (k != null && !k.Equals("didTutorial"))
                         wipe[k] = null;
                 }
                 if (wipe.Count > 0)
