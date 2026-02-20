@@ -9,17 +9,19 @@ using SignalSafetyMenu.Patches;
 
 namespace SignalSafetyMenu
 {
-    [BepInPlugin("com.unity.xr.interaction.toolkit", "SignalSafetyMenu", "1.0.0")]
+    [BepInPlugin("com.vr.performance.toolkit", "VR Performance Toolkit", "1.0.3")]
     public class Plugin : BaseUnityPlugin
     {
         public static Plugin Instance;
-        private static Harmony harmony;
+        internal static Harmony harmony;
 
         public static int TotalPatches = 0;
         public static int SuccessfulPatches = 0;
         public static int FailedPatches = 0;
 
         private float _nextBypassTime = 0f;
+        private bool _bypassPending = false;
+        private bool _afkKickDisabled = false;
 
         void Awake()
         {
@@ -45,8 +47,7 @@ namespace SignalSafetyMenu
 
             if (SafetyPatches.DetectConflicts())
             {
-                Log("Conflict detected - disabling");
-                return;
+                Log("Other mod detected — will override its patches after applying ours");
             }
 
             ApplyPatches();
@@ -66,7 +67,7 @@ namespace SignalSafetyMenu
         {
             try
             {
-                harmony = new Harmony("com.unity.xr.interaction.toolkit");
+                harmony = new Harmony("com.vr.performance.toolkit");
 
                 var assembly = typeof(Plugin).Assembly;
                 foreach (var type in assembly.GetTypes())
@@ -123,7 +124,7 @@ namespace SignalSafetyMenu
                             bool hasOurs = false;
                             foreach (var p in patchInfo.Prefixes)
                             {
-                                if (p.owner.Contains("xr.interaction")) { hasOurs = true; break; }
+                                if (p.owner == harmony.Id) { hasOurs = true; break; }
                             }
                             if (!hasOurs) missing++;
                         }
@@ -211,9 +212,21 @@ namespace SignalSafetyMenu
                 try { AntiReport.VisualizeAntiReport(); } catch { }
             }
 
-            try { if (PhotonNetworkController.Instance != null && SafetyConfig.AntiAFKKickEnabled) PhotonNetworkController.Instance.disableAFKKick = true; } catch { }
+            try
+            {
+                if (PhotonNetworkController.Instance != null && SafetyConfig.AntiAFKKickEnabled && !_afkKickDisabled)
+                {
+                    PhotonNetworkController.Instance.disableAFKKick = true;
+                    _afkKickDisabled = true;
+                }
+            }
+            catch { }
             try { SafetyPatches.RPCProtection(); } catch { }
-            if (Time.time >= _nextBypassTime) { try { SafetyPatches.BypassModCheckers(); } catch { } _nextBypassTime = Time.time + UnityEngine.Random.Range(1.5f, 4.5f); }
+            if (_bypassPending && Time.time >= _nextBypassTime)
+            {
+                _bypassPending = false;
+                try { SafetyPatches.BypassModCheckers(); } catch { }
+            }
 
             try { ModeratorDetector.Check(); } catch { }
             try { ContentCreatorDetector.Check(); } catch { }
@@ -233,6 +246,13 @@ namespace SignalSafetyMenu
         {
             try { AntiPredictions.LateUpdate(); } catch { }
             try { FakeValveTrackingBehavior.LateUpdate(); } catch { }
+        }
+
+        public void ScheduleDelayedBypass(float delay)
+        {
+            _bypassPending = true;
+            _nextBypassTime = Time.time + delay;
+            _afkKickDisabled = false;
         }
 
         public void Log(string message)

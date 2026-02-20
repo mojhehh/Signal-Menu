@@ -37,16 +37,20 @@ namespace SignalSafetyMenu.Patches
             return true;
         }
 
+        internal static bool _rpcProtectionApplied = false;
+
         public static void RPCProtection()
         {
-            if (!PhotonNetwork.InRoom) return;
+            if (!PhotonNetwork.InRoom) { _rpcProtectionApplied = false; return; }
+            if (_rpcProtectionApplied) return;
             try
             {
-                GorillaNot.instance.rpcErrorMax = int.MaxValue;
-                GorillaNot.instance.rpcCallLimit = int.MaxValue;
-                GorillaNot.instance.logErrorMax = int.MaxValue;
-                PhotonNetwork.MaxResendsBeforeDisconnect = int.MaxValue;
-                PhotonNetwork.QuickResends = int.MaxValue;
+                GorillaNot.instance.rpcErrorMax = 999999;
+                GorillaNot.instance.rpcCallLimit = 999999;
+                GorillaNot.instance.logErrorMax = 999999;
+                PhotonNetwork.MaxResendsBeforeDisconnect = 25;
+                PhotonNetwork.QuickResends = 3;
+                _rpcProtectionApplied = true;
             }
             catch { }
         }
@@ -252,14 +256,8 @@ namespace SignalSafetyMenu.Patches
                 _spoofedHWID = ReadEncrypted(HWIDFilePath);
                 if (string.IsNullOrEmpty(_spoofedHWID))
                 {
-                    byte[] macBytes = GenerateRandomBytes(6);
-                    string macPart = BitConverter.ToString(macBytes);
-                    byte[] extraBytes = GenerateRandomBytes(3);
-                    string extraPart = Convert.ToBase64String(extraBytes).Substring(0, 4).Replace("+", "G").Replace("/", "H");
-                    string hex1 = BitConverter.ToString(GenerateRandomBytes(4)).Replace("-", "");
-                    string hex2 = BitConverter.ToString(GenerateRandomBytes(4)).Replace("-", "");
-
-                    _spoofedHWID = $"{macPart}-{extraPart}-{hex1}-{hex2}";
+                    byte[] guidBytes = GenerateRandomBytes(16);
+                    _spoofedHWID = new Guid(guidBytes).ToString();
                     WriteEncrypted(HWIDFilePath, _spoofedHWID);
                 }
             }
@@ -374,7 +372,7 @@ namespace SignalSafetyMenu.Patches
                     {
                         foreach (var prefix in patches.Prefixes)
                         {
-                            if (prefix.owner.Contains("signal"))
+                            if (prefix.owner == harmony.Id)
                                 continue;
 
                             Plugin.Instance?.Log($"Removing conflicting patch from {type.Name}.{method} (owner: {prefix.owner})");
@@ -388,8 +386,6 @@ namespace SignalSafetyMenu.Patches
 
         public static bool DetectConflicts()
         {
-            bool hasConflicts = false;
-
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 string name = asm.GetName().Name;
@@ -403,22 +399,17 @@ namespace SignalSafetyMenu.Patches
 
                 if (name.Contains("Bark") || name.Contains("Aspect") || name.Contains("Lunacy"))
                 {
-                    Plugin.Instance?.Log($"Detected other mod: {name}");
-                    hasConflicts = true;
+                    Plugin.Instance?.Log($"[WARNING] Detected other mod: {name} — will override its patches");
+                    AudioManager.Play("patch_conflict", AudioManager.AudioCategory.Warning);
                 }
             }
 
-            if (hasConflicts)
-            {
-                AudioManager.Play("patch_conflict", AudioManager.AudioCategory.Warning);
-            }
-
-            return hasConflicts;
+            return false;
         }
 
         internal static bool ShouldBlockTelemetry() => SafetyConfig.PatchTelemetry && SafetyConfig.TelemetryBlockEnabled;
         internal static bool ShouldBlockSensitiveTelemetry() => ShouldBlockTelemetry();
-        internal static bool ShouldAllowHarmlessTelemetry() => true;
+        internal static bool ShouldAllowHarmlessTelemetry() => !ShouldBlockTelemetry();
         internal static bool ShouldBlockPlayFab() => SafetyConfig.PatchPlayFabReport;
     }
 
@@ -429,9 +420,15 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPostfix]
         public static void Postfix()
         {
+            try { SafetyPatches.BanAlreadyAnnounced = false; } catch { }
+            try { SafetyPatches._rpcProtectionApplied = false; } catch { }
+            try { SafetyPatches.BypassModCheckers(); } catch { }
             try
             {
-                PhotonNetworkController.Instance.currentJoinType = GorillaNetworking.JoinType.Solo;
+                if (Plugin.Instance != null)
+                {
+                    Plugin.Instance.ScheduleDelayedBypass(3f);
+                }
             }
             catch { }
             try { AntiReport.OnRoomJoined(); } catch { }
@@ -516,7 +513,7 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref object __result)
         {
             if (!SafetyConfig.PatchRPCLimits) return true;
-            __result = null;
+            __result = new ExitGames.Client.Photon.Hashtable();
             return false;
         }
     }

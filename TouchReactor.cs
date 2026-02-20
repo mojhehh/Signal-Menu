@@ -11,6 +11,7 @@ namespace SignalSafetyMenu
         private bool _isSwitch;
         private float _lastTap;
         private Renderer _rend;
+        private Material _mat;
         private Color _baseColor;
         private bool _gazing;
 
@@ -18,6 +19,7 @@ namespace SignalSafetyMenu
         private static readonly Color TapFlash = new Color(0.3f, 0.85f, 1f, 1f);
         private const float TapGate = 0.2f;
         private const float GazeFadeRate = 10f;
+        private const float ColorEpsilon = 0.005f;
 
         private const int TapMaterialID = 67;
         private const float TapGain = 0.05f;
@@ -28,15 +30,26 @@ namespace SignalSafetyMenu
             _isSwitch = isSwitch;
             _rend = GetComponent<Renderer>();
             if (_rend != null)
-                _baseColor = _rend.material.color;
+            {
+                _mat = _rend.material;
+                _baseColor = _mat.color;
+            }
         }
 
         void Update()
         {
-            if (_rend == null || _rend.material == null) return;
+            if (_mat == null) return;
 
             Color target = _gazing ? GazeHighlight : _baseColor;
-            _rend.material.color = Color.Lerp(_rend.material.color, target, Time.deltaTime * GazeFadeRate);
+            Color current = _mat.color;
+            if (Mathf.Abs(current.r - target.r) < ColorEpsilon &&
+                Mathf.Abs(current.g - target.g) < ColorEpsilon &&
+                Mathf.Abs(current.b - target.b) < ColorEpsilon)
+            {
+                _gazing = false;
+                return;
+            }
+            _mat.color = Color.Lerp(current, target, Time.deltaTime * GazeFadeRate);
             _gazing = false;
         }
 
@@ -64,8 +77,8 @@ namespace SignalSafetyMenu
             }
             catch { }
 
-            if (_rend != null)
-                _rend.material.color = TapFlash;
+            if (_mat != null)
+                _mat.color = TapFlash;
 
             try { _onActivate?.Invoke(); } catch { }
         }

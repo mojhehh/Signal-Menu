@@ -116,7 +116,7 @@ namespace SignalSafetyMenu
             }
 
             float dt = now - prev.time;
-            if (dt < 0.001f) return false;
+            if (dt < 0.02f) return false;
 
             Vector3 rVel = (rNow - prev.rightPos) / dt;
             Vector3 lVel = (lNow - prev.leftPos) / dt;

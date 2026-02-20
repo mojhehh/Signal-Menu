@@ -164,7 +164,13 @@ namespace SignalSafetyMenu
 
         static SafetyConfig()
         {
-            Load();
+            try
+            {
+                string testPath = Application.persistentDataPath;
+                if (!string.IsNullOrEmpty(testPath))
+                    Load();
+            }
+            catch { }
         }
 
         public static void Save()

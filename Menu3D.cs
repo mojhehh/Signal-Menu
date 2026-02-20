@@ -46,6 +46,7 @@ namespace SignalSafetyMenu
         private Material _unlitMat;
         private Vector3 _targetScale;
         private bool _animating = false;
+        private bool _needsRebuild = false;
 
         private static readonly string[] TabNames = { "Shield", "Stealth", "Identity", "Extra", "Settings", "Patches" };
 
@@ -87,6 +88,17 @@ namespace SignalSafetyMenu
         void Update()
         {
             HandleInput();
+
+            if (_needsRebuild)
+            {
+                _needsRebuild = false;
+                if (IsOpen)
+                {
+                    BuildMenu();
+                    if (_menuRoot != null) _menuRoot.transform.localScale = _targetScale;
+                    if (_pointer != null) _pointer.SetActive(true);
+                }
+            }
 
             if (IsOpen && _menuRoot != null)
             {
@@ -160,8 +172,8 @@ namespace SignalSafetyMenu
             {
                 elapsed += Time.deltaTime;
                 float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
-                if (_menuRoot != null)
-                    _menuRoot.transform.localScale = Vector3.Lerp(from, to, t);
+                if (_menuRoot == null) { _animating = false; yield break; }
+                _menuRoot.transform.localScale = Vector3.Lerp(from, to, t);
                 yield return null;
             }
 
@@ -465,6 +477,7 @@ namespace SignalSafetyMenu
 
                 btn.GetComponent<Renderer>().material = MakeMat(ButtonIdle);
                 _slotCubes.Add(btn);
+                _slotStripes.Add(stripe);
 
                 var txt = CreateTMP(canvasT, "", 0.008f, TextWhite, TextAlignmentOptions.MidlineLeft, FontStyles.Normal);
                 txt.rectTransform.sizeDelta = new Vector2(btnWidth - 0.02f, ButtonHeight);
@@ -570,8 +583,8 @@ namespace SignalSafetyMenu
             Switch("Auto-Override Patches", () => SafetyConfig.AutoOverrideOnDetection, v => { SafetyConfig.AutoOverrideOnDetection = v; SafetyConfig.Save(); });
             Trigger("Force Scan Now", () =>
             {
-                var harmony = new HarmonyLib.Harmony("org.signal.safety.menu");
-                MenuDetector.FullScan(harmony);
+                if (Plugin.harmony != null)
+                    MenuDetector.FullScan(Plugin.harmony);
             });
 
             if (MenuDetector.ScanComplete)
@@ -579,7 +592,11 @@ namespace SignalSafetyMenu
                 string status = MenuDetector.MenuDetected
                     ? $"DETECTED: {MenuDetector.DetectedMenuName}"
                     : "No conflicts";
-            Section(status, header: true);
+                Section(status, header: true);
+            }
+            else
+            {
+                Section("Scanning...", header: true);
             }
             Section("DANGER", header: true);
             Trigger("RESTART GORILLA TAG", () => Patches.GameRestarter.Restart());
@@ -784,7 +801,7 @@ namespace SignalSafetyMenu
             if (UpdateChecker.UpdateAvailable && _updateBanner != null)
             {
                 _updateBanner.SetActive(true);
-                _updateText.text = $"? UPDATE v{UpdateChecker.LatestVersion} AVAILABLE";
+                if (_updateText != null) _updateText.text = $"\u26a0 UPDATE v{UpdateChecker.LatestVersion} AVAILABLE";
             }
 
             for (int i = 0; i < _tabObjects.Count; i++)
@@ -852,7 +869,8 @@ namespace SignalSafetyMenu
                 if (leftHand == null) return;
 
                 Vector3 target = leftHand.position + leftHand.up * 0.12f + leftHand.forward * 0.02f;
-                _menuRoot.transform.position = Vector3.Lerp(_menuRoot.transform.position, target, Time.deltaTime * 12f);
+                float smoothFactor = 1f - Mathf.Pow(0.01f, Time.deltaTime);
+                _menuRoot.transform.position = Vector3.Lerp(_menuRoot.transform.position, target, smoothFactor);
 
                 var head = GorillaTagger.Instance?.headCollider?.transform;
                 if (head != null)
@@ -861,7 +879,8 @@ namespace SignalSafetyMenu
                     if (lookDir.sqrMagnitude > 0.001f)
                     {
                         Quaternion targetRot = Quaternion.LookRotation(-lookDir.normalized, Vector3.up);
-                        _menuRoot.transform.rotation = Quaternion.Slerp(_menuRoot.transform.rotation, targetRot, Time.deltaTime * 10f);
+                    float rotSmooth = 1f - Mathf.Pow(0.01f, Time.deltaTime);
+                    _menuRoot.transform.rotation = Quaternion.Slerp(_menuRoot.transform.rotation, targetRot, rotSmooth);
                     }
                 }
             }
@@ -901,21 +920,19 @@ namespace SignalSafetyMenu
         public void RebuildMenu()
         {
             if (!IsOpen) return;
-            BuildMenu();
-            if (_menuRoot != null)
-                _menuRoot.transform.localScale = _targetScale;
-            if (_pointer != null) _pointer.SetActive(true);
+            _needsRebuild = true;
         }
 
         private void DestroyMenu()
         {
             if (_menuRoot != null)
             {
-                Destroy(_menuRoot);
+                DestroyImmediate(_menuRoot);
                 _menuRoot = null;
             }
             _slotCubes.Clear();
             _slotLabels.Clear();
+            _slotStripes.Clear();
             _tabObjects.Clear();
             _tabTexts.Clear();
         }

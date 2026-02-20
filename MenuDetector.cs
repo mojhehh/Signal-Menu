@@ -174,7 +174,7 @@ namespace SignalSafetyMenu
                             .Concat(info.Transpilers.Select(p => p.owner));
                     })
                     .Distinct()
-                    .Where(id => !string.IsNullOrEmpty(id) && !id.Contains("signal"))
+                    .Where(id => !string.IsNullOrEmpty(id) && id != ourHarmony.Id)
                     .ToList();
 
                 foreach (var id in allIds)
@@ -242,7 +242,7 @@ namespace SignalSafetyMenu
 
                     foreach (var prefix in patches.Prefixes)
                     {
-                        if (prefix.owner.Contains("signal")) continue;
+                        if (prefix.owner == ourHarmony.Id) continue;
                         try
                         {
                             ourHarmony.Unpatch(original, prefix.PatchMethod);
@@ -254,7 +254,7 @@ namespace SignalSafetyMenu
 
                     foreach (var postfix in patches.Postfixes)
                     {
-                        if (postfix.owner.Contains("signal")) continue;
+                        if (postfix.owner == ourHarmony.Id) continue;
                         try
                         {
                             ourHarmony.Unpatch(original, postfix.PatchMethod);
@@ -265,7 +265,7 @@ namespace SignalSafetyMenu
 
                     foreach (var transpiler in patches.Transpilers)
                     {
-                        if (transpiler.owner.Contains("signal")) continue;
+                        if (transpiler.owner == ourHarmony.Id) continue;
                         try
                         {
                             ourHarmony.Unpatch(original, transpiler.PatchMethod);
