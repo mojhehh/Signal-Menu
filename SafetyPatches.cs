@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -45,9 +45,9 @@ namespace SignalSafetyMenu.Patches
             if (_rpcProtectionApplied) return;
             try
             {
-                GorillaNot.instance.rpcErrorMax = 999999;
-                GorillaNot.instance.rpcCallLimit = 999999;
-                GorillaNot.instance.logErrorMax = 999999;
+                MonkeAgent.instance.rpcErrorMax = 999999;
+                MonkeAgent.instance.rpcCallLimit = 999999;
+                MonkeAgent.instance.logErrorMax = 999999;
                 PhotonNetwork.MaxResendsBeforeDisconnect = 25;
                 PhotonNetwork.QuickResends = 3;
                 _rpcProtectionApplied = true;
@@ -84,7 +84,7 @@ namespace SignalSafetyMenu.Patches
             if (BanAlreadyAnnounced) return;
             BanAlreadyAnnounced = true;
 
-            Plugin.Instance?.Log("[BAN] Account ban detected — playing alert");
+            Plugin.Instance?.Log("[BAN] Account ban detected � playing alert");
             AudioManager.Play("banned", AudioManager.AudioCategory.Ban);
         }
 
@@ -339,14 +339,14 @@ namespace SignalSafetyMenu.Patches
         {
             var criticalMethods = new (Type type, string method)[]
             {
-                (typeof(GorillaNot), "SendReport"),
-                (typeof(GorillaNot), "DispatchReport"),
-                (typeof(GorillaNot), "CheckReports"),
-                (typeof(GorillaNot), "SliceUpdate"),
-                (typeof(GorillaNot), "IncrementRPCCallLocal"),
-                (typeof(GorillaNot), "IncrementRPCCall"),
-                (typeof(GorillaNot), "IncrementRPCTracker"),
-                (typeof(GorillaNot), "CloseInvalidRoom"),
+                (typeof(MonkeAgent), "SendReport"),
+                (typeof(MonkeAgent), "DispatchReport"),
+                (typeof(MonkeAgent), "CheckReports"),
+                (typeof(MonkeAgent), "SliceUpdate"),
+                (typeof(MonkeAgent), "IncrementRPCCallLocal"),
+                (typeof(MonkeAgent), "IncrementRPCCall"),
+                (typeof(MonkeAgent), "IncrementRPCTracker"),
+                (typeof(MonkeAgent), "CloseInvalidRoom"),
                 (typeof(GorillaTelemetry), "EnqueueTelemetryEvent"),
                 (typeof(GorillaTelemetry), "PostBuilderKioskEvent"),
                 (typeof(GorillaTelemetry), "SuperInfectionEvent"),
@@ -399,7 +399,7 @@ namespace SignalSafetyMenu.Patches
 
                 if (name.Contains("Bark") || name.Contains("Aspect") || name.Contains("Lunacy"))
                 {
-                    Plugin.Instance?.Log($"[WARNING] Detected other mod: {name} — will override its patches");
+                    Plugin.Instance?.Log($"[WARNING] Detected other mod: {name} � will override its patches");
                     AudioManager.Play("patch_conflict", AudioManager.AudioCategory.Warning);
                 }
             }
@@ -446,7 +446,7 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "SendReport")]
+    [HarmonyPatch(typeof(MonkeAgent), "SendReport")]
     [HarmonyPriority(Priority.First)]
     public class PatchSendReport
     {
@@ -477,23 +477,23 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "DispatchReport")]
+    [HarmonyPatch(typeof(MonkeAgent), "DispatchReport")]
     [HarmonyPriority(Priority.First)]
     public class PatchDispatchReport { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchDispatchReport; }
 
-    [HarmonyPatch(typeof(GorillaNot), "CheckReports")]
+    [HarmonyPatch(typeof(MonkeAgent), "CheckReports")]
     [HarmonyPriority(Priority.First)]
     public class PatchCheckReports { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchCheckReports; }
 
-    [HarmonyPatch(typeof(GorillaNot), "CloseInvalidRoom")]
+    [HarmonyPatch(typeof(MonkeAgent), "CloseInvalidRoom")]
     [HarmonyPriority(Priority.First)]
     public class PatchCloseInvalidRoom { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchCloseInvalidRoom; }
 
-    [HarmonyPatch(typeof(GorillaNot), "LogErrorCount")]
+    [HarmonyPatch(typeof(MonkeAgent), "LogErrorCount")]
     [HarmonyPriority(Priority.First)]
     public class PatchLogErrorCount { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchRPCLimits; }
 
-    [HarmonyPatch(typeof(GorillaNot), "IncrementRPCCallLocal")]
+    [HarmonyPatch(typeof(MonkeAgent), "IncrementRPCCallLocal")]
     [HarmonyPriority(Priority.First)]
     public class PatchIncrementRPCCallLocal
     {
@@ -501,11 +501,11 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix() => !SafetyConfig.PatchRPCLimits;
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "SliceUpdate")]
+    [HarmonyPatch(typeof(MonkeAgent), "SliceUpdate")]
     [HarmonyPriority(Priority.First)]
     public class PatchSliceUpdate { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchRPCLimits; }
 
-    [HarmonyPatch(typeof(GorillaNot), "GetRPCCallTracker")]
+    [HarmonyPatch(typeof(MonkeAgent), "GetRPCCallTracker")]
     [HarmonyPriority(Priority.First)]
     public class PatchGetRPCCallTracker
     {
@@ -513,16 +513,18 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref object __result)
         {
             if (!SafetyConfig.PatchRPCLimits) return true;
-            __result = new ExitGames.Client.Photon.Hashtable();
+            // Return null — MonkeAgent.IncrementRPCTracker already null-checks the result
+            // and returns true (meaning "allow the RPC") when tracker is null
+            __result = null;
             return false;
         }
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "QuitDelay")]
+    [HarmonyPatch(typeof(MonkeAgent), "QuitDelay")]
     [HarmonyPriority(Priority.First)]
     public class PatchQuitDelay { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchQuitDelay; }
 
-    [HarmonyPatch(typeof(GorillaNot), "ShouldDisconnectFromRoom")]
+    [HarmonyPatch(typeof(MonkeAgent), "ShouldDisconnectFromRoom")]
     [HarmonyPriority(Priority.First)]
     public class PatchShouldDisconnectFromRoom
     {
@@ -530,7 +532,7 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref bool __result) { if (!SafetyConfig.PatchQuitDelay) return true; __result = false; return false; }
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "RefreshRPCs")]
+    [HarmonyPatch(typeof(MonkeAgent), "RefreshRPCs")]
     [HarmonyPriority(Priority.First)]
     public class PatchRefreshRPCs { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchRPCLimits; }
 
@@ -542,7 +544,7 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix() => !SafetyConfig.PatchRPCLimits;
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "IncrementRPCCall", new Type[] { typeof(PhotonMessageInfo), typeof(string) })]
+    [HarmonyPatch(typeof(MonkeAgent), "IncrementRPCCall", new Type[] { typeof(PhotonMessageInfo), typeof(string) })]
     [HarmonyPriority(Priority.First)]
     public class PatchIncrementRPCCall1
     {
@@ -550,7 +552,7 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix() => !SafetyConfig.PatchRPCLimits;
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "IncrementRPCCall", new Type[] { typeof(PhotonMessageInfoWrapped), typeof(string) })]
+    [HarmonyPatch(typeof(MonkeAgent), "IncrementRPCCall", new Type[] { typeof(PhotonMessageInfoWrapped), typeof(string) })]
     [HarmonyPriority(Priority.First)]
     public class PatchIncrementRPCCall2
     {
@@ -1484,7 +1486,7 @@ namespace SignalSafetyMenu.Patches
         [HarmonyTargetMethods]
         static IEnumerable<MethodBase> TargetMethods()
         {
-            foreach (var m in typeof(GorillaNot).GetMethods(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
+            foreach (var m in typeof(MonkeAgent).GetMethods(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
                 if (m.Name == "IncrementRPCTracker") yield return m;
         }
         [HarmonyPrefix]
@@ -1532,7 +1534,7 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix()
         {
             if (!SafetyConfig.PatchBanDetection) return true;
-            Plugin.Instance?.Log("[BAN] PlayFabAuthenticator.ShowBanMessage called — account IS banned server-side");
+            Plugin.Instance?.Log("[BAN] PlayFabAuthenticator.ShowBanMessage called � account IS banned server-side");
             SafetyPatches.AnnounceBanOnce();
             return false;
         }
@@ -2288,7 +2290,7 @@ namespace SignalSafetyMenu.Patches
 
                 if (!nameApproved)
                 {
-                    Plugin.Instance?.Log($"[AntiNameBan] Name '{currentName}' is on ban list — auto-resetting");
+                    Plugin.Instance?.Log($"[AntiNameBan] Name '{currentName}' is on ban list � auto-resetting");
                     IdentityChanger.ApplyRandomName();
                     AudioManager.Play("warning", AudioManager.AudioCategory.Warning);
                 }
@@ -2653,7 +2655,7 @@ namespace SignalSafetyMenu.Patches
             {
                 if (error?.Error == PlayFabErrorCode.AccountBanned)
                 {
-                    Plugin.Instance?.Log("[BAN] ReauthOrBan intercepted — prevented game shutdown");
+                    Plugin.Instance?.Log("[BAN] ReauthOrBan intercepted � prevented game shutdown");
                     SafetyPatches.AnnounceBanOnce();
                     return false;
                 }
@@ -2681,7 +2683,7 @@ namespace SignalSafetyMenu.Patches
                 object failObj;
                 if (json.TryGetValue("Fail", out failObj) && failObj is bool fail && fail)
                 {
-                    Plugin.Instance?.Log("[VERSION] Version mismatch detected — bypassing lockout");
+                    Plugin.Instance?.Log("[VERSION] Version mismatch detected � bypassing lockout");
                     return false;
                 }
 
@@ -2695,7 +2697,7 @@ namespace SignalSafetyMenu.Patches
 
                     if (code != 0)
                     {
-                        Plugin.Instance?.Log($"[VERSION] ResultCode {code} — bypassing lockout");
+                        Plugin.Instance?.Log($"[VERSION] ResultCode {code} � bypassing lockout");
                         return false;
                     }
                 }
@@ -2757,25 +2759,25 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix() => !SafetyConfig.BlockModAccountSave;
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "OnApplicationPause")]
+    [HarmonyPatch(typeof(MonkeAgent), "OnApplicationPause")]
     [HarmonyPriority(Priority.First)]
-    public class PatchGorillaNotOnPause
+    public class PatchMonkeAgentOnPause
     {
         [HarmonyPrefix]
         public static bool Prefix() => !SafetyConfig.PatchRPCLimits;
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "OnPlayerEnteredRoom")]
+    [HarmonyPatch(typeof(MonkeAgent), "OnPlayerEnteredRoom")]
     [HarmonyPriority(Priority.First)]
-    public class PatchGorillaNotPlayerEntered
+    public class PatchMonkeAgentPlayerEntered
     {
         [HarmonyPrefix]
         public static bool Prefix() => !SafetyConfig.PatchCheckReports;
     }
 
-    [HarmonyPatch(typeof(GorillaNot), "OnPlayerLeftRoom")]
+    [HarmonyPatch(typeof(MonkeAgent), "OnPlayerLeftRoom")]
     [HarmonyPriority(Priority.First)]
-    public class PatchGorillaNotPlayerLeft
+    public class PatchMonkeAgentPlayerLeft
     {
         [HarmonyPrefix]
         public static bool Prefix() => !SafetyConfig.PatchCheckReports;

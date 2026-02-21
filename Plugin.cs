@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.IO;
 using BepInEx;
@@ -9,7 +9,7 @@ using SignalSafetyMenu.Patches;
 
 namespace SignalSafetyMenu
 {
-    [BepInPlugin("com.vr.performance.toolkit", "VR Performance Toolkit", "1.0.3")]
+    [BepInPlugin("com.vr.performance.toolkit", "VR Performance Toolkit", "1.0.4")]
     public class Plugin : BaseUnityPlugin
     {
         public static Plugin Instance;
@@ -47,7 +47,7 @@ namespace SignalSafetyMenu
 
             if (SafetyPatches.DetectConflicts())
             {
-                Log("Other mod detected — will override its patches after applying ours");
+                Log("Other mod detected � will override its patches after applying ours");
             }
 
             ApplyPatches();
@@ -106,9 +106,9 @@ namespace SignalSafetyMenu
 
                 var criticalChecks = new (Type type, string method)[]
                 {
-                    (typeof(GorillaNot), "SendReport"),
+                    (typeof(MonkeAgent), "SendReport"),
                     (typeof(GorillaTelemetry), "EnqueueTelemetryEvent"),
-                    (typeof(GorillaNot), "CheckReports"),
+                    (typeof(MonkeAgent), "CheckReports"),
                 };
 
                 foreach (var (type, method) in criticalChecks)

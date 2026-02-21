@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -205,18 +205,18 @@ namespace SignalSafetyMenu
 
             var criticalMethods = new (Type type, string method)[]
             {
-                (typeof(GorillaNot), "SendReport"),
-                (typeof(GorillaNot), "DispatchReport"),
-                (typeof(GorillaNot), "CheckReports"),
-                (typeof(GorillaNot), "SliceUpdate"),
-                (typeof(GorillaNot), "IncrementRPCCallLocal"),
-                (typeof(GorillaNot), "IncrementRPCCall"),
-                (typeof(GorillaNot), "IncrementRPCTracker"),
-                (typeof(GorillaNot), "CloseInvalidRoom"),
-                (typeof(GorillaNot), "QuitDelay"),
-                (typeof(GorillaNot), "ShouldDisconnectFromRoom"),
-                (typeof(GorillaNot), "RefreshRPCs"),
-                (typeof(GorillaNot), "LogErrorCount"),
+                (typeof(MonkeAgent), "SendReport"),
+                (typeof(MonkeAgent), "DispatchReport"),
+                (typeof(MonkeAgent), "CheckReports"),
+                (typeof(MonkeAgent), "SliceUpdate"),
+                (typeof(MonkeAgent), "IncrementRPCCallLocal"),
+                (typeof(MonkeAgent), "IncrementRPCCall"),
+                (typeof(MonkeAgent), "IncrementRPCTracker"),
+                (typeof(MonkeAgent), "CloseInvalidRoom"),
+                (typeof(MonkeAgent), "QuitDelay"),
+                (typeof(MonkeAgent), "ShouldDisconnectFromRoom"),
+                (typeof(MonkeAgent), "RefreshRPCs"),
+                (typeof(MonkeAgent), "LogErrorCount"),
                 (typeof(GorillaTelemetry), "EnqueueTelemetryEvent"),
                 (typeof(GorillaTelemetry), "PostBuilderKioskEvent"),
                 (typeof(GorillaTelemetry), "SuperInfectionEvent"),
