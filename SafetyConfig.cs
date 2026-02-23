@@ -108,6 +108,15 @@ namespace SignalSafetyMenu
 
         private static byte[] GetEncryptionKey()
         {
+            string seed = "SC_" + Environment.UserName + "_SSM";
+            using (var sha = SHA256.Create())
+            {
+                return sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(seed));
+            }
+        }
+
+        private static byte[] GetLegacyEncryptionKey()
+        {
             string seed = "SC_" + Environment.UserName + "_" + Environment.MachineName;
             using (var sha = SHA256.Create())
             {
@@ -138,11 +147,11 @@ namespace SignalSafetyMenu
             catch { return plainText; }
         }
 
-        private static string DecryptConfig(string cipherText)
+        private static string DecryptConfig(string cipherText, byte[] key = null)
         {
             try
             {
-                byte[] key = GetEncryptionKey();
+                if (key == null) key = GetEncryptionKey();
                 byte[] fullCipher = Convert.FromBase64String(cipherText);
                 using (var aes = Aes.Create())
                 {
@@ -277,14 +286,15 @@ namespace SignalSafetyMenu
         {
             try
             {
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
                 string data = string.Join("|", new string[]
                 {
-                    CustomPanelColor.r.ToString("F3"), CustomPanelColor.g.ToString("F3"),
-                    CustomPanelColor.b.ToString("F3"), CustomPanelColor.a.ToString("F3"),
-                    CustomAccentColor.r.ToString("F3"), CustomAccentColor.g.ToString("F3"),
-                    CustomAccentColor.b.ToString("F3"), CustomAccentColor.a.ToString("F3"),
-                    CustomTextColor.r.ToString("F3"), CustomTextColor.g.ToString("F3"),
-                    CustomTextColor.b.ToString("F3"), CustomTextColor.a.ToString("F3"),
+                    CustomPanelColor.r.ToString("F3", inv), CustomPanelColor.g.ToString("F3", inv),
+                    CustomPanelColor.b.ToString("F3", inv), CustomPanelColor.a.ToString("F3", inv),
+                    CustomAccentColor.r.ToString("F3", inv), CustomAccentColor.g.ToString("F3", inv),
+                    CustomAccentColor.b.ToString("F3", inv), CustomAccentColor.a.ToString("F3", inv),
+                    CustomTextColor.r.ToString("F3", inv), CustomTextColor.g.ToString("F3", inv),
+                    CustomTextColor.b.ToString("F3", inv), CustomTextColor.a.ToString("F3", inv),
                 });
                 File.WriteAllText(ThemeConfigPath, data);
             }
@@ -331,9 +341,16 @@ namespace SignalSafetyMenu
                 if (string.IsNullOrEmpty(raw)) { _firstOpen = true; return; }
 
                 string decrypted = DecryptConfig(raw);
+                if (decrypted == null)
+                {
+                    // Try legacy key (included MachineName) for migration
+                    decrypted = DecryptConfig(raw, GetLegacyEncryptionKey());
+                }
                 if (decrypted != null)
                 {
                     LoadFromString(decrypted);
+                    // Re-save with current key if migrated from legacy
+                    Save();
                 }
                 else
                 {

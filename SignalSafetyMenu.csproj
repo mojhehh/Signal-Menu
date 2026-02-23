@@ -4,7 +4,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>SignalSafetyMenu</AssemblyName>
     <Description>Signal Safety Menu - Full protection with identity change, anti-report, and advanced settings</Description>
-    <Version>1.0.0</Version>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\version.txt').Trim())</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <NoWarn>CS1705</NoWarn>
@@ -94,6 +94,11 @@
     <!-- Fusion.Runtime for NetworkView/NetworkBehaviour types -->
     <Reference Include="Fusion.Runtime">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Gorilla Tag\Gorilla Tag_Data\Managed\Fusion.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Backtrace.Unity for crash report blocking -->
+    <Reference Include="Backtrace.Unity">
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Gorilla Tag\Gorilla Tag_Data\Managed\Backtrace.Unity.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

@@ -122,9 +122,11 @@ namespace SignalSafetyMenu
         {
             try
             {
-                float r = UnityEngine.Random.Range(0f, 1f);
-                float g = UnityEngine.Random.Range(0f, 1f);
-                float b = UnityEngine.Random.Range(0f, 1f);
+                byte[] buf = new byte[12];
+                using (var rng = new RNGCryptoServiceProvider()) rng.GetBytes(buf);
+                float r = BitConverter.ToUInt32(buf, 0) / (float)uint.MaxValue;
+                float g = BitConverter.ToUInt32(buf, 4) / (float)uint.MaxValue;
+                float b = BitConverter.ToUInt32(buf, 8) / (float)uint.MaxValue;
                 GorillaTagger.Instance.UpdateColor(r, g, b);
                 PlayerPrefs.SetFloat("redValue", r);
                 PlayerPrefs.SetFloat("greenValue", g);
@@ -136,10 +138,14 @@ namespace SignalSafetyMenu
         }
         public static void CheckDisconnect()
         {
-            if (!SafetyConfig.ChangeIdentityOnDisconnect || !SafetyConfig.IdentityChangeEnabled) return;
-
             bool inRoom = false;
             try { inRoom = NetworkSystem.Instance != null && NetworkSystem.Instance.InRoom; } catch { }
+
+            if (!SafetyConfig.ChangeIdentityOnDisconnect || !SafetyConfig.IdentityChangeEnabled)
+            {
+                _wasInRoom = inRoom;
+                return;
+            }
 
             if (_wasInRoom && !inRoom)
             {

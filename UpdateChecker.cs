@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -7,7 +8,7 @@ namespace SignalSafetyMenu
 {
     public static class UpdateChecker
     {
-        public const string CurrentVersion = "1.0.0";
+        public static string CurrentVersion { get; } = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
         private const string VersionURL = "https://mojhehh.github.io/Signal-Menu/version.txt";
         private const string FallbackURL = "https://raw.githubusercontent.com/mojhehh/Signal-Menu/main/version.txt";
 

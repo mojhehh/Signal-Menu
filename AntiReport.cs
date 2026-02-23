@@ -26,9 +26,20 @@ namespace SignalSafetyMenu
         public static bool AntiMute { get => SafetyConfig.AntiReportMuteDetect; set => SafetyConfig.AntiReportMuteDetect = value; }
 
         public static bool SmartMode { get => SafetyConfig.AntiReportSmartMode; set => SafetyConfig.AntiReportSmartMode = value; }
-        private static float buttonClickTime = 0f;
-        private static string buttonClickPlayer = null;
-        private const float SmartWindowSeconds = 1.5f;
+        private static readonly object _clickLock = new object();
+        private static float _buttonClickTime = 0f;
+        private static string _buttonClickPlayer = null;
+        private const float SmartWindowSeconds = 2.5f;
+
+        private static void SetClickData(float time, string player)
+        {
+            lock (_clickLock) { _buttonClickTime = time; _buttonClickPlayer = player; }
+        }
+
+        private static (float time, string player) GetClickData()
+        {
+            lock (_clickLock) { return (_buttonClickTime, _buttonClickPlayer); }
+        }
 
         public static bool VisualizerEnabled { get => SafetyConfig.AntiReportVisualizerEnabled; set => SafetyConfig.AntiReportVisualizerEnabled = value; }
         private static Dictionary<string, GameObject> auraPool = new Dictionary<string, GameObject>();
@@ -183,8 +194,9 @@ namespace SignalSafetyMenu
                 string rigUserId = vrrig?.Creator?.UserId;
                 if (rigUserId == null) return true;
 
-                bool recentClick = rigUserId == buttonClickPlayer
-                    && (Time.unscaledTime - buttonClickTime) < SmartWindowSeconds;
+                var click = GetClickData();
+                bool recentClick = rigUserId == click.player
+                    && (Time.unscaledTime - click.time) < SmartWindowSeconds;
 
                 return recentClick && PhotonNetwork.CurrentRoom != null;
             }
@@ -217,7 +229,8 @@ namespace SignalSafetyMenu
                 {
                     lineCount++;
 
-                    if (line.linePlayer != NetworkSystem.Instance.LocalPlayer) continue;
+                    string localUserId = NetworkSystem.Instance.LocalPlayer?.UserId;
+                    if (localUserId == null || line.linePlayer?.UserId != localUserId) continue;
                     myLineCount++;
 
                     if (line.reportButton?.gameObject?.transform != null)
@@ -266,7 +279,7 @@ namespace SignalSafetyMenu
 
                     if (SmartMode && !SmartCheck(vrrig))
                     {
-                        float elapsed = Time.unscaledTime - buttonClickTime;
+                        float elapsed = Time.unscaledTime - GetClickData().time;
                         Plugin.Instance?.Log($"[ANTI-REPORT] Rig near button but SmartMode filtered: lastClick={elapsed:F2}s ago");
                         continue;
                     }
@@ -369,20 +382,16 @@ namespace SignalSafetyMenu
                 {
                     notifyText = name;
                 }
-                else if (notifyText.Contains("&"))
-                {
-                    notifyText = name + ", " + notifyText;
-                }
                 else
                 {
-                    notifyText = notifyText + " & " + name;
+                    notifyText = notifyText + ", " + name;
                 }
             });
 
             if (!string.IsNullOrEmpty(notifyText))
             {
                 LastReporter = notifyText;
-                NearbyCount = notifyText.Split(new string[] { " & " }, StringSplitOptions.None).Length;
+                NearbyCount = notifyText.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Length;
             }
             else
             {
@@ -413,7 +422,8 @@ namespace SignalSafetyMenu
             {
                 try
                 {
-                    if (line.linePlayer != NetworkSystem.Instance.LocalPlayer) continue;
+                    string localUserId = NetworkSystem.Instance.LocalPlayer?.UserId;
+                    if (localUserId == null || line.linePlayer?.UserId != localUserId) continue;
 
                     float visRange = Threshold * MaxPingScale;
 
@@ -456,9 +466,17 @@ namespace SignalSafetyMenu
                 sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 UnityEngine.Object.Destroy(sphere.GetComponent<Collider>());
 
-                if (_cachedShader == null) _cachedShader = Shader.Find("GUI/Text Shader");
+                if (_cachedShader == null)
+                {
+                    _cachedShader = Shader.Find("Universal Render Pipeline/Unlit");
+                    if (_cachedShader == null) _cachedShader = Shader.Find("Unlit/Transparent");
+                    if (_cachedShader == null) _cachedShader = Shader.Find("Sprites/Default");
+                }
                 Renderer renderer = sphere.GetComponent<Renderer>();
-                renderer.material.shader = _cachedShader;
+                if (_cachedShader != null) renderer.material.shader = _cachedShader;
+                renderer.material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                renderer.material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                renderer.material.renderQueue = 3000;
 
                 auraPool[key] = sphere;
             }
@@ -471,12 +489,13 @@ namespace SignalSafetyMenu
             Renderer rend = sphere.GetComponent<Renderer>();
             Color c = color;
             c.a = 0.25f;
-            rend.sharedMaterial.color = c;
+            rend.material.color = c;
         }
         public static void SetReportRig(VRRig rig)
         {
             reportRig = rig;
         }
+        private static bool _smartHandledThisFrame = false;
         private static void EventReceived_SmartAntiReport(EventData data)
         {
             try
@@ -494,8 +513,8 @@ namespace SignalSafetyMenu
                         if (PhotonNetwork.NetworkingClient?.CurrentRoom == null) return;
                         var clicker = PhotonNetwork.NetworkingClient.CurrentRoom.GetPlayer(data.Sender, false);
                         if (clicker == null) return;
-                        buttonClickTime = Time.unscaledTime;
-                        buttonClickPlayer = clicker.UserId;
+                        SetClickData(Time.unscaledTime, clicker.UserId);
+                        _smartHandledThisFrame = true;
                     }
                 }
             }
@@ -505,6 +524,8 @@ namespace SignalSafetyMenu
         {
             try
             {
+                // Skip if Smart handler already processed this event
+                if (_smartHandledThisFrame) { _smartHandledThisFrame = false; return; }
                 if (data.Code == 200)
                 {
                     var customData = data.CustomData as ExitGames.Client.Photon.Hashtable;

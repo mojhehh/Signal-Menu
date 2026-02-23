@@ -159,6 +159,8 @@ namespace SignalSafetyMenu
                 if (request.result == UnityWebRequest.Result.Success)
                     clip = DownloadHandlerAudioClip.GetContent(request);
 
+                request.Dispose();
+
                 if (clip != null)
                 {
                     var src = GetSource();

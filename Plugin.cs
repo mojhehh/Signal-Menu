@@ -26,6 +26,7 @@ namespace SignalSafetyMenu
         void Awake()
         {
             Instance = this;
+            SafetyConfig.Load();
             Log("Safety menu loading...");
             Log("Patches + Settings active");
 
@@ -37,6 +38,12 @@ namespace SignalSafetyMenu
             Log("Checking environment...");
 
             gameObject.AddComponent<Menu3D>();
+
+            // Apply saved theme after config is loaded
+            if (SafetyConfig.UseCustomTheme)
+                ThemeManager.LoadUserPalette();
+            else
+                ThemeManager.LoadPalette(SafetyConfig.ThemeIndex);
 
             try
             {

@@ -504,7 +504,11 @@ namespace SignalSafetyMenu
         private void BuildShieldPage()
         {
             Section("CORE PROTECTION", header: true);
-            Switch("Anti-Report", () => SafetyConfig.AntiReportEnabled, v => { SafetyConfig.AntiReportEnabled = v; SafetyConfig.Save(); });
+            Switch("Anti-Report", () => SafetyConfig.AntiReportEnabled, v => {
+                SafetyConfig.AntiReportEnabled = v; SafetyConfig.Save();
+                if (v) { AntiReport.EnableSmartAntiReport(); AntiReport.EnableAntiOculusReport(); }
+                else { AntiReport.DisableSmartAntiReport(); AntiReport.DisableAntiOculusReport(); }
+            });
             Switch("Block Telemetry", () => SafetyConfig.TelemetryBlockEnabled, v => { SafetyConfig.TelemetryBlockEnabled = v; SafetyConfig.Save(); });
             Switch("Block PlayFab Reports", () => SafetyConfig.PlayFabBlockEnabled, v => { SafetyConfig.PlayFabBlockEnabled = v; SafetyConfig.Save(); });
             Switch("Block Network Events", () => SafetyConfig.NetworkEventBlockEnabled, v => { SafetyConfig.NetworkEventBlockEnabled = v; SafetyConfig.Save(); });
@@ -513,7 +517,7 @@ namespace SignalSafetyMenu
             Switch("KID Bypass", () => SafetyConfig.KIDBypassEnabled, v => { SafetyConfig.KIDBypassEnabled = v; SafetyConfig.Save(); });
             Switch("Name Ban Bypass", () => SafetyConfig.NameBanBypassEnabled, v => { SafetyConfig.NameBanBypassEnabled = v; SafetyConfig.Save(); });
             Switch("Core Property Filter", () => SafetyConfig.CoreProtectionEnabled, v => { SafetyConfig.CoreProtectionEnabled = v; SafetyConfig.Save(); });
-            Switch("Device Spoofing", () => SafetyConfig.DeviceSpoofEnabled, v => { SafetyConfig.DeviceSpoofEnabled = v; SafetyConfig.Save(); });
+            Switch("Device Spoofing (always on)", () => true, v => { });
             Switch("Anti-Crash", () => SafetyConfig.AntiCrashEnabled, v => { SafetyConfig.AntiCrashEnabled = v; SafetyConfig.Save(); });
             Switch("Anti-Kick", () => SafetyConfig.AntiKickEnabled, v =>
             {
@@ -525,6 +529,23 @@ namespace SignalSafetyMenu
             Switch("Anti-Pause Disconnect", () => SafetyConfig.AntiPauseDisconnectEnabled, v => { SafetyConfig.AntiPauseDisconnectEnabled = v; SafetyConfig.Save(); });
             Switch("Version Check Bypass", () => SafetyConfig.VersionBypassEnabled, v => { SafetyConfig.VersionBypassEnabled = v; SafetyConfig.Save(); });
             Switch("Block Account Data Save", () => SafetyConfig.BlockModAccountSave, v => { SafetyConfig.BlockModAccountSave = v; SafetyConfig.Save(); });
+            Section("ANTI-REPORT OPTIONS", header: true);
+            string[] arModes = { "Disconnect", "Reconnect", "Notify Only" };
+            string modeName = SafetyConfig.AntiReportMode >= 0 && SafetyConfig.AntiReportMode < arModes.Length
+                ? arModes[SafetyConfig.AntiReportMode] : "Unknown";
+            Trigger($"Mode: {modeName} \u25B6", () =>
+            {
+                SafetyConfig.AntiReportMode = (SafetyConfig.AntiReportMode + 1) % 3;
+                SafetyConfig.Save(); SyncSlots();
+            });
+            Switch("Smart Mode", () => SafetyConfig.AntiReportSmartMode, v => { SafetyConfig.AntiReportSmartMode = v; SafetyConfig.Save(); });
+            Switch("Visualizer Spheres", () => SafetyConfig.AntiReportVisualizerEnabled, v => { SafetyConfig.AntiReportVisualizerEnabled = v; SafetyConfig.Save(); });
+            Switch("Mute Button Detection", () => SafetyConfig.AntiReportMuteDetect, v => { SafetyConfig.AntiReportMuteDetect = v; SafetyConfig.Save(); });
+            Trigger($"Range: {AntiReport.RangeName} \u25B6", () =>
+            {
+                AntiReport.CycleRange(); SafetyConfig.Save(); SyncSlots();
+            });
+            Switch("Show AC Reports", () => SafetyConfig.ShowACReportsEnabled, v => { SafetyConfig.ShowACReportsEnabled = v; SafetyConfig.Save(); });
         }
 
         private void BuildStealthPage()
@@ -562,7 +583,21 @@ namespace SignalSafetyMenu
             Section("SPOOFING", header: true);
             Switch("Spoof Support Page", () => SafetyConfig.SupportPageSpoofEnabled, v => { SafetyConfig.SupportPageSpoofEnabled = v; SafetyConfig.Save(); });
             Switch("Spoof FPS", () => SafetyConfig.FPSSpoofEnabled, v => { SafetyConfig.FPSSpoofEnabled = v; SafetyConfig.Save(); });
+            Trigger($"FPS Value: {SafetyConfig.SpoofedFPS} \u25B6", () =>
+            {
+                SafetyConfig.SpoofedFPS += 10;
+                if (SafetyConfig.SpoofedFPS > 120) SafetyConfig.SpoofedFPS = 30;
+                SafetyConfig.Save(); SyncSlots();
+            });
             Switch("Ranked Spoof", () => SafetyConfig.RankedSpoofEnabled, v => { SafetyConfig.RankedSpoofEnabled = v; SafetyConfig.Save(); });
+            Trigger($"Ranked ELO: {Patches.RankedSpoofer.TargetElo} \u25B6", () =>
+            {
+                Patches.RankedSpoofer.CycleElo(true); SyncSlots();
+            });
+            Trigger($"Ranked Badge: {Patches.RankedSpoofer.GetBadgeName()} \u25B6", () =>
+            {
+                Patches.RankedSpoofer.CycleBadge(true); SyncSlots();
+            });
             Switch("TOS/Age Bypass", () => SafetyConfig.TOSBypassEnabled, v => { SafetyConfig.TOSBypassEnabled = v; SafetyConfig.Save(); });
             Switch("Anti-Name Ban", () => SafetyConfig.AntiNameBanEnabled, v => { SafetyConfig.AntiNameBanEnabled = v; SafetyConfig.Save(); });
         }
@@ -600,6 +635,16 @@ namespace SignalSafetyMenu
             }
             Section("DANGER", header: true);
             Trigger("RESTART GORILLA TAG", () => Patches.GameRestarter.Restart());
+            Section("STATUS", header: true);
+            Section($"v{UpdateChecker.CurrentVersion} | {Plugin.SuccessfulPatches}/{Plugin.TotalPatches} patches");
+            if (Patches.ModeratorDetector.DetectedModerator)
+                Section($"MOD: {Patches.ModeratorDetector.ModeratorName}");
+            if (Patches.ContentCreatorDetector.DetectedCreator)
+                Section($"CREATOR: {Patches.ContentCreatorDetector.CreatorName}");
+            if (Patches.ACReportNotifier.HasActiveNotification)
+                Section($"AC REPORT: {Patches.ACReportNotifier.LastReport}");
+            if (!string.IsNullOrEmpty(AntiReport.LastReporter))
+                Section($"Last reporter: {AntiReport.LastReporter}");
         }
 
         private void BuildSettingsPage()
