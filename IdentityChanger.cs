@@ -10,6 +10,8 @@ namespace SignalSafetyMenu
         private static string originalName = null;
         private static string currentName = null;
         private static bool _wasInRoom = false;
+        private static float _lastSoundTime = -999f;
+        private const float SOUND_COOLDOWN = 5f;
 
         private static readonly string[] FirstNames = new string[]
         {
@@ -110,7 +112,11 @@ namespace SignalSafetyMenu
                     GorillaNetworking.GorillaComputer.instance.currentName = name;
                 }
 
-                AudioManager.Play("done", AudioManager.AudioCategory.Toggle);
+                if (Time.time - _lastSoundTime >= SOUND_COOLDOWN)
+                {
+                    AudioManager.Play("identity_changed", AudioManager.AudioCategory.Protection);
+                    _lastSoundTime = Time.time;
+                }
             }
             catch (Exception ex)
             {

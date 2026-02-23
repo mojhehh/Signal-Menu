@@ -343,13 +343,11 @@ namespace SignalSafetyMenu
                 string decrypted = DecryptConfig(raw);
                 if (decrypted == null)
                 {
-                    // Try legacy key (included MachineName) for migration
                     decrypted = DecryptConfig(raw, GetLegacyEncryptionKey());
                 }
                 if (decrypted != null)
                 {
                     LoadFromString(decrypted);
-                    // Re-save with current key if migrated from legacy
                     Save();
                 }
                 else

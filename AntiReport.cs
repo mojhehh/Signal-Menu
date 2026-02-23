@@ -390,8 +390,11 @@ namespace SignalSafetyMenu
 
             if (!string.IsNullOrEmpty(notifyText))
             {
+                bool isNew = LastReporter != notifyText;
                 LastReporter = notifyText;
                 NearbyCount = notifyText.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Length;
+                if (isNew)
+                    AudioManager.Play("report_nearby", AudioManager.AudioCategory.Warning);
             }
             else
             {
@@ -524,7 +527,6 @@ namespace SignalSafetyMenu
         {
             try
             {
-                // Skip if Smart handler already processed this event
                 if (_smartHandledThisFrame) { _smartHandledThisFrame = false; return; }
                 if (data.Code == 200)
                 {

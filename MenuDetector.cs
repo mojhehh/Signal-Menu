@@ -54,6 +54,8 @@ namespace SignalSafetyMenu
 
         private static float _lastScanTime = 0f;
         private static bool _alertPlayed = false;
+        private static bool _alreadyLogged = false;
+        private static bool _overrideAttempted = false;
 
         public static void FullScan(Harmony ourHarmony)
         {
@@ -70,7 +72,11 @@ namespace SignalSafetyMenu
 
             if (MenuDetected)
             {
-                Plugin.Instance?.Log($"[MenuDetector] DETECTED: {DetectedMenuName} ({AllDetected.Count} total conflicts)");
+                if (!_alreadyLogged)
+                {
+                    _alreadyLogged = true;
+                    Plugin.Instance?.Log($"[MenuDetector] DETECTED: {DetectedMenuName} ({AllDetected.Count} total conflicts)");
+                }
 
                 if (SafetyConfig.MenuDetectionAlertEnabled && !_alertPlayed)
                 {
@@ -78,15 +84,25 @@ namespace SignalSafetyMenu
                     AudioManager.Play("menu_detected", AudioManager.AudioCategory.Warning);
                 }
 
-                if (SafetyConfig.AutoOverrideOnDetection)
+                if (SafetyConfig.AutoOverrideOnDetection && !_overrideAttempted)
                 {
+                    _overrideAttempted = true;
                     OverriddenPatchCount = ForceOverrideAll(ourHarmony);
-                    Plugin.Instance?.Log($"[MenuDetector] Overrode {OverriddenPatchCount} conflicting patches");
+                    if (OverriddenPatchCount > 0)
+                    {
+                        Plugin.Instance?.Log($"[MenuDetector] Overrode {OverriddenPatchCount} conflicting patches");
+                        AudioManager.Play("patch_override", AudioManager.AudioCategory.PatchOverride);
+                    }
                 }
             }
             else
             {
-                Plugin.Instance?.Log("[MenuDetector] No conflicting menus detected");
+                if (_alreadyLogged)
+                {
+                    Plugin.Instance?.Log("[MenuDetector] Conflict cleared");
+                    _alreadyLogged = false;
+                    _overrideAttempted = false;
+                }
             }
         }
 

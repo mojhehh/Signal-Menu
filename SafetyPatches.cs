@@ -252,11 +252,9 @@ namespace SignalSafetyMenu.Patches
                 string result = DecryptString(encrypted);
                 if (result == null)
                 {
-                    // Try legacy key (included MachineName) for migration
                     result = DecryptString(encrypted, GetLegacyEncryptionKey());
                     if (result != null)
                     {
-                        // Re-encrypt with new key
                         try { File.WriteAllText(path, EncryptString(result)); } catch { }
                     }
                 }
@@ -273,6 +271,76 @@ namespace SignalSafetyMenu.Patches
         }
 
         private static readonly object _spoofLock = new object();
+        private static readonly string SteamMarkerPath = Path.Combine(Application.persistentDataPath, ".gl_owner");
+        private static bool _accountChecked = false;
+
+        private static void CheckAccountChange()
+        {
+            if (_accountChecked) return;
+            _accountChecked = true;
+            try
+            {
+                string currentId = GetActiveSteamId();
+                if (string.IsNullOrEmpty(currentId)) return;
+
+                string storedId = ReadEncrypted(SteamMarkerPath);
+                if (!string.IsNullOrEmpty(storedId) && storedId == currentId) return;
+
+                bool isFirstRun = string.IsNullOrEmpty(storedId);
+                if (!isFirstRun)
+                {
+                    Plugin.Instance?.Log("[Identity] Steam account changed — regenerating spoofed IDs");
+                    try { File.Delete(HWIDFilePath); } catch { }
+                    try { File.Delete(PlayFabIdFilePath); } catch { }
+                    try { File.Delete(MothershipIdFilePath); } catch { }
+                    _spoofedHWID = null;
+                    _spoofedPlayFabId = null;
+                    _spoofedMothershipId = null;
+                }
+
+                WriteEncrypted(SteamMarkerPath, currentId);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance?.Log($"[Identity] Account check error: {ex.Message}");
+            }
+        }
+
+        private static string GetActiveSteamId()
+        {
+            try
+            {
+                string dataPath = Application.dataPath;
+                string gameDir = Path.GetDirectoryName(dataPath);
+                string commonDir = Path.GetDirectoryName(gameDir);
+                string steamApps = Path.GetDirectoryName(commonDir);
+                string steamRoot = Path.GetDirectoryName(steamApps);
+
+                string loginFile = Path.Combine(steamRoot, "config", "loginusers.vdf");
+                if (!File.Exists(loginFile)) return null;
+
+                string[] lines = File.ReadAllLines(loginFile);
+                string lastSteamId = null;
+
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string line = lines[i].Trim();
+
+                    if (line.StartsWith("\"7656") && line.EndsWith("\""))
+                    {
+                        lastSteamId = line.Trim('"');
+                    }
+
+                    if (line.Contains("\"MostRecent\"") && line.Contains("\"1\""))
+                    {
+                        if (!string.IsNullOrEmpty(lastSteamId))
+                            return lastSteamId;
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
 
         public static string GetSpoofedHWID()
         {
@@ -280,6 +348,7 @@ namespace SignalSafetyMenu.Patches
             lock (_spoofLock)
             {
                 if (_spoofedHWID != null) return _spoofedHWID;
+                CheckAccountChange();
                 _spoofedHWID = ReadEncrypted(HWIDFilePath);
                 if (string.IsNullOrEmpty(_spoofedHWID))
                 {
@@ -297,6 +366,7 @@ namespace SignalSafetyMenu.Patches
             lock (_spoofLock)
             {
                 if (_spoofedPlayFabId != null) return _spoofedPlayFabId;
+                CheckAccountChange();
                 _spoofedPlayFabId = ReadEncrypted(PlayFabIdFilePath);
                 if (string.IsNullOrEmpty(_spoofedPlayFabId))
                 {
@@ -313,6 +383,7 @@ namespace SignalSafetyMenu.Patches
             lock (_spoofLock)
             {
                 if (_spoofedMothershipId != null) return _spoofedMothershipId;
+                CheckAccountChange();
                 _spoofedMothershipId = ReadEncrypted(MothershipIdFilePath);
                 if (string.IsNullOrEmpty(_spoofedMothershipId))
                 {
@@ -418,8 +489,6 @@ namespace SignalSafetyMenu.Patches
 
         public static bool DetectConflicts()
         {
-            // Only check BepInEx plugin DLLs, not all loaded assemblies
-            // (game assemblies can contain "Bark" etc. causing false positives)
             try
             {
                 string pluginsPath = Path.Combine(
@@ -512,7 +581,6 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPostfix]
         public static void Postfix()
         {
-            // Clean stale auras from previous room on room switch
             try { AntiReport.OnRoomLeft(); } catch { }
         }
     }
@@ -584,8 +652,6 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref object __result)
         {
             if (!SafetyConfig.PatchRPCLimits) return true;
-            // Return null — MonkeAgent.IncrementRPCTracker already null-checks the result
-            // and returns true (meaning "allow the RPC") when tracker is null
             __result = null;
             return false;
         }
@@ -1052,7 +1118,6 @@ namespace SignalSafetyMenu.Patches
             new Profile { Model = "Pico 4", Name = "Pico 4", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 1024, RAM = 8192, Cores = 8, IsAndroid = true },
         };
 
-        // Pre-filtered arrays for platform-safe selection
         private static Profile[] _pcProfiles;
         private static Profile[] _androidProfiles;
 
@@ -1086,7 +1151,6 @@ namespace SignalSafetyMenu.Patches
 
         private static Profile[] GetPlatformProfiles()
         {
-            // On PC (Steam build), only use PC profiles to avoid platform mismatch
             return Application.platform == RuntimePlatform.Android ? AndroidProfiles : PCProfiles;
         }
 
@@ -1339,8 +1403,6 @@ namespace SignalSafetyMenu.Patches
         {
             if (!SafetyConfig.PatchAutoBanList) return true;
             if (!SafetyConfig.NameBanBypassEnabled) return true;
-            // Game returns true = name is CLEAN, false = name is BANNED
-            // We return true to always say "name is clean"
             __result = true;
             return false;
         }
@@ -1440,8 +1502,7 @@ namespace SignalSafetyMenu.Patches
                             string msg = error?.ErrorMessage;
                             if (msg != null && (msg.Contains("banned") || msg.Contains("suspended") || msg.Contains("suspension")))
                             {
-                                // Still invoke original so login flow handles ban properly
-                                originalCallback?.Invoke(error);
+                            originalCallback?.Invoke(error);
                                 return;
                             }
                             originalCallback?.Invoke(error);
@@ -1861,7 +1922,7 @@ namespace SignalSafetyMenu.Patches
 
                             Plugin.Instance?.Log($"[CREATOR] {playerName} ({playerId}) cosmetic={kvp.Key} ({kvp.Value})");
 
-                            AudioManager.Play("moderator_detected", AudioManager.AudioCategory.Warning);
+                            AudioManager.Play("creator_detected", AudioManager.AudioCategory.Warning);
                             SafetyPatches.SafetyDisconnect($"Creator detected: {playerName}");
                             return;
                         }
@@ -2020,6 +2081,7 @@ namespace SignalSafetyMenu.Patches
             LastReport = reason ?? "unknown";
             LastReportTime = Time.time;
             Plugin.Instance?.Log($"[AC-REPORT] Notification: reported for \"{reason}\"");
+            AudioManager.Play("ac_report", AudioManager.AudioCategory.Warning);
         }
 
         public static void Clear()
@@ -2215,7 +2277,6 @@ namespace SignalSafetyMenu.Patches
                 if (GorillaComputer.instance?.screenText == null) return;
                 string current = GorillaComputer.instance.screenText.currentText;
                 if (string.IsNullOrEmpty(current) || !current.Contains("STEAM")) return;
-                // Don't mangle ban messages
                 string lower = current.ToLowerInvariant();
                 if (lower.Contains("banned") || lower.Contains("suspended") || lower.Contains("suspension")) return;
 
@@ -2241,7 +2302,7 @@ namespace SignalSafetyMenu.Patches
             TargetElo += up ? 100 : -100;
             if (TargetElo > 4000) TargetElo = 0;
             if (TargetElo < 0) TargetElo = 4000;
-            _lastApply = 0f; // force immediate re-apply on change
+            _lastApply = 0f;
         }
 
         public static void CycleBadge(bool up)
@@ -2321,7 +2382,6 @@ namespace SignalSafetyMenu.Patches
             {
                 var inp = ControllerInputPoller.instance;
                 if (inp == null) return;
-                // Don't zero secondary buttons so user can toggle this off via menu
                 inp.leftControllerGripFloat = 0f;
                 inp.rightControllerGripFloat = 0f;
                 inp.leftControllerIndexFloat = 0f;
@@ -2495,7 +2555,7 @@ namespace SignalSafetyMenu.Patches
                         if (k == "didTutorial")
                             cleanProps[key] = props[key];
                         else
-                            cleanProps[key] = null; // Photon removes keys set to null
+                            cleanProps[key] = null;
                     }
                     PatchSetCustomProperties._bypassActive = true;
                     try { PhotonNetwork.LocalPlayer.SetCustomProperties(cleanProps); } finally { PatchSetCustomProperties._bypassActive = false; }
@@ -2644,8 +2704,6 @@ namespace SignalSafetyMenu.Patches
             catch { return true; }
         }
     }
-
-    // GameEntityManager.JoinWithItemsRPC was removed in Feb 2026 update - patch no longer needed
 
     [HarmonyPatch(typeof(VRRig), "PostTick")]
     [HarmonyPriority(Priority.First)]
@@ -2857,9 +2915,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // AFK kick is handled once in Plugin.cs Update() with _afkKickDisabled guard
-    // Removed PatchAFKKick from FixedUpdate to avoid setting disableAFKKick 50-90x/sec
-
     [HarmonyPatch(typeof(PhotonNetworkController), "OnApplicationPause")]
     [HarmonyPriority(Priority.First)]
     public class PatchAppPause
@@ -2887,8 +2942,6 @@ namespace SignalSafetyMenu.Patches
             return false;
         }
     }
-
-    // SaveModAccountData was removed in Feb 2026 update - patch no longer needed
 
     [HarmonyPatch(typeof(MonkeAgent), "OnApplicationPause")]
     [HarmonyPriority(Priority.First)]
@@ -2937,8 +2990,6 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref bool isSafety)
         {
             if (!SafetyConfig.NameBanBypassEnabled) return true;
-            // Prevent the game from overwriting our custom name
-            // SetNameBySafety sets name based on KID/safety mode
             isSafety = false;
             return true;
         }
@@ -2972,11 +3023,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // ── Crash Report Blocking ──────────────────────────────────────────
-    // BacktraceManager sends crash reports to devs. Patching Awake to override
-    // BeforeSend so all crash data is dropped, and Start to prevent PlayFab
-    // from fetching the server-controlled sample rate.
-
     [HarmonyPatch(typeof(BacktraceManager), "Awake")]
     [HarmonyPriority(Priority.Last)]
     public class PatchBacktraceAwake
@@ -2989,7 +3035,7 @@ namespace SignalSafetyMenu.Patches
             {
                 var client = __instance.GetComponent<BacktraceClient>();
                 if (client != null)
-                    client.BeforeSend = (BacktraceData data) => null; // Block all crash reports
+                    client.BeforeSend = (BacktraceData data) => null;
             }
             catch { SafetyPatches.TrackError("BacktraceAwake"); }
         }
@@ -3002,16 +3048,9 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPrefix]
         public static bool Prefix()
         {
-            // Prevents PlayFab sample rate fetch — no point if we block everything
             return !SafetyPatches.ShouldBlockTelemetry();
         }
     }
-
-    // ── Mothership Notification Interception ───────────────────────────
-    // GorillaMetaReport.OnNotification handles Warning, Mute, Unmute from
-    // the Mothership server. Each handler calls GorillaTelemetry.PostNotificationEvent
-    // which confirms to the server that the notification was received.
-    // Blocking this prevents mute enforcement AND telemetry confirmation.
 
     [HarmonyPatch(typeof(GorillaMetaReport), "OnNotification")]
     [HarmonyPriority(Priority.First)]
@@ -3026,13 +3065,9 @@ namespace SignalSafetyMenu.Patches
                 Plugin.Instance?.Log("[Safety] Blocked GorillaMetaReport notification (mute/warning/unmute)");
             }
             catch { }
-            return false; // Skip original — no mute, no telemetry confirmation
+            return false;
         }
     }
-
-    // ── FailedToSpawn Crash Protection ─────────────────────────────────
-    // GorillaWrappedSerializer.FailedToSpawn can call PhotonNetwork.Destroy on
-    // owned objects which may trigger disconnects. Safely deactivate instead.
 
     [HarmonyPatch(typeof(GorillaWrappedSerializer), "FailedToSpawn")]
     [HarmonyPriority(Priority.First)]
@@ -3047,7 +3082,7 @@ namespace SignalSafetyMenu.Patches
                 __instance.gameObject.SetActive(false);
             }
             catch { SafetyPatches.TrackError("FailedToSpawn"); }
-            return false; // Skip original — prevents PhotonNetwork.Destroy on owned objects
+            return false;
         }
     }
 

@@ -39,7 +39,6 @@ namespace SignalSafetyMenu
 
             gameObject.AddComponent<Menu3D>();
 
-            // Apply saved theme after config is loaded
             if (SafetyConfig.UseCustomTheme)
                 ThemeManager.LoadUserPalette();
             else
