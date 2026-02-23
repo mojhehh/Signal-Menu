@@ -1,4 +1,9 @@
 @echo off
+if "%~1"=="RUN" goto :start
+cmd /k "%~f0" RUN
+exit /b
+
+:start
 setlocal enabledelayedexpansion
 title Signal Safety Menu Installer
 color 1F
@@ -32,10 +37,13 @@ if defined STEAM_PATH (
 
 if not defined GAME_PATH if defined STEAM_PATH (
     if exist "%STEAM_PATH%\steamapps\libraryfolders.vdf" (
-        for /f "tokens=*" %%L in ('findstr /C:"path" "%STEAM_PATH%\steamapps\libraryfolders.vdf"') do (
-            for /f "tokens=4 delims=^"" %%P in ("%%L") do (
-                if exist "%%P\steamapps\common\Gorilla Tag\Gorilla Tag_Data" (
-                    set "GAME_PATH=%%P\steamapps\common\Gorilla Tag"
+        for /f "usebackq tokens=*" %%L in ("%STEAM_PATH%\steamapps\libraryfolders.vdf") do (
+            echo %%L | findstr /C:"path" >nul 2>&1 && (
+                for /f "tokens=4 delims=	 " %%P in ("%%L") do (
+                    set "_p=%%~P"
+                    if exist "!_p!\steamapps\common\Gorilla Tag\Gorilla Tag_Data" (
+                        set "GAME_PATH=!_p!\steamapps\common\Gorilla Tag"
+                    )
                 )
             )
         )
@@ -47,11 +55,24 @@ if not defined GAME_PATH if exist "E:\SteamLibrary\steamapps\common\Gorilla Tag\
 if not defined GAME_PATH if exist "E:\Steam\steamapps\common\Gorilla Tag\Gorilla Tag_Data" set "GAME_PATH=E:\Steam\steamapps\common\Gorilla Tag"
 
 if not defined GAME_PATH (
+    if defined STEAM_PATH (
+        powershell -NoProfile -Command ^
+            "$vdf = Get-Content '%STEAM_PATH%\steamapps\libraryfolders.vdf' -ErrorAction SilentlyContinue;" ^
+            "$paths = [regex]::Matches($vdf, '\"path\"\s+\"([^\"]+)\"') | ForEach-Object { $_.Groups[1].Value };" ^
+            "foreach ($p in $paths) { if (Test-Path \"$p\steamapps\common\Gorilla Tag\Gorilla Tag_Data\") { Write-Output $p; break } }" > "%TEMP%\_signal_path.txt" 2>nul
+        set /p GAME_PATH=<"%TEMP%\_signal_path.txt"
+        del "%TEMP%\_signal_path.txt" >nul 2>&1
+        if defined GAME_PATH set "GAME_PATH=!GAME_PATH!\steamapps\common\Gorilla Tag"
+    )
+)
+
+if not defined GAME_PATH (
     color 4F
     echo   [x] Could not find Gorilla Tag.
     echo       Make sure the game is installed through Steam or Oculus.
     echo.
-    pause
+    echo   Press any key to exit...
+    pause >nul
     exit /b 1
 )
 
@@ -81,7 +102,8 @@ if not exist "%GAME_PATH%\BepInEx" (
         echo   [x] BepInEx installation failed.
         echo       Try downloading manually from github.com/BepInEx/BepInEx/releases
         echo.
-        pause
+        echo   Press any key to exit...
+        pause >nul
         exit /b 1
     )
 
@@ -95,7 +117,8 @@ if not exist "%GAME_PATH%\BepInEx" (
         echo   [x] BepInEx installation failed.
         echo       Try downloading manually from github.com/BepInEx/BepInEx/releases
         echo.
-        pause
+        echo   Press any key to exit...
+        pause >nul
         exit /b 1
     )
 
@@ -124,7 +147,8 @@ if not exist "%DLL_PATH%" (
     echo   [x] Download failed. Check your internet connection.
     del "%DLL_PATH%" >nul 2>&1
     echo.
-    pause
+    echo   Press any key to exit...
+    pause >nul
     exit /b 1
 )
 for %%A in ("%DLL_PATH%") do if %%~zA LSS 1024 (
@@ -133,7 +157,8 @@ for %%A in ("%DLL_PATH%") do if %%~zA LSS 1024 (
     echo   [x] Download failed. Check your internet connection.
     del "%DLL_PATH%" >nul 2>&1
     echo.
-    pause
+    echo   Press any key to exit...
+    pause >nul
     exit /b 1
 )
 echo   [+] Signal Safety Menu downloaded.
@@ -151,7 +176,7 @@ powershell -NoProfile -Command ^
 if exist "%UPD_PATH%" (
     echo   [+] Auto Updater downloaded.
 ) else (
-    echo   [!] Auto Updater download failed (non-critical^).
+    echo   [!] Auto Updater download failed (non-critical).
 )
 
 title Signal Safety Menu Installer // Done!
@@ -167,4 +192,5 @@ echo      Launch Gorilla Tag to load the mod.
 echo      The mod auto-updates on each launch.
 echo   ======================================
 echo.
-pause
+echo   Press any key to exit...
+pause >nul
