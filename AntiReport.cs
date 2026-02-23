@@ -20,6 +20,7 @@ namespace SignalSafetyMenu
 
         private static float antiReportDelay = 0f;
         private static float antiReportNotifyDelay = 0f;
+        private static float _smartFilterLogTime = 0f;
 
         private static VRRig reportRig = null;
 
@@ -279,8 +280,12 @@ namespace SignalSafetyMenu
 
                     if (SmartMode && !SmartCheck(vrrig))
                     {
-                        float elapsed = Time.unscaledTime - GetClickData().time;
-                        Plugin.Instance?.Log($"[ANTI-REPORT] Rig near button but SmartMode filtered: lastClick={elapsed:F2}s ago");
+                        if (Time.unscaledTime > _smartFilterLogTime)
+                        {
+                            float elapsed = Time.unscaledTime - GetClickData().time;
+                            Plugin.Instance?.Log($"[ANTI-REPORT] Rig near button but SmartMode filtered: lastClick={elapsed:F2}s ago");
+                            _smartFilterLogTime = Time.unscaledTime + 5f;
+                        }
                         continue;
                     }
 
@@ -486,12 +491,12 @@ namespace SignalSafetyMenu
 
             sphere.SetActive(true);
             sphere.transform.position = position;
-            float diameter = range * 2f;
+            float diameter = 0.08f;
             sphere.transform.localScale = new Vector3(diameter, diameter, diameter);
 
             Renderer rend = sphere.GetComponent<Renderer>();
             Color c = color;
-            c.a = 0.25f;
+            c.a = 0.55f;
             rend.material.color = c;
         }
         public static void SetReportRig(VRRig rig)

@@ -265,7 +265,7 @@ namespace SignalSafetyMenu
 
             var crt = canvasObj.GetComponent<RectTransform>();
             crt.sizeDelta = new Vector2(PanelWidth, PanelHeight);
-            crt.localPosition = new Vector3(0, 0, -PanelDepth / 2f - 0.0005f);
+            crt.localPosition = new Vector3(0, 0, PanelDepth / 2f + 0.0005f);
             crt.localRotation = Quaternion.identity;
             crt.localScale = Vector3.one;
 
