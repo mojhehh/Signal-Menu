@@ -19,6 +19,8 @@ using PlayFab.Json;
 using GorillaNetworking;
 using GorillaTagScripts;
 using GorillaExtensions;
+using Backtrace.Unity;
+using Backtrace.Unity.Model;
 
 namespace SignalSafetyMenu.Patches
 {
@@ -43,6 +45,7 @@ namespace SignalSafetyMenu.Patches
         {
             if (!PhotonNetwork.InRoom) { _rpcProtectionApplied = false; return; }
             if (_rpcProtectionApplied) return;
+            if (MonkeAgent.instance == null) return;
             try
             {
                 MonkeAgent.instance.rpcErrorMax = 999999;
@@ -168,6 +171,15 @@ namespace SignalSafetyMenu.Patches
 
         private static byte[] GetEncryptionKey()
         {
+            string seed = "GT_" + Environment.UserName + "_SSM";
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                return sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(seed));
+            }
+        }
+
+        private static byte[] GetLegacyEncryptionKey()
+        {
             string seed = "GT_" + Environment.UserName + "_" + Environment.MachineName;
             using (var sha = System.Security.Cryptography.SHA256.Create())
             {
@@ -198,11 +210,11 @@ namespace SignalSafetyMenu.Patches
             catch { return plainText; }
         }
 
-        private static string DecryptString(string cipherText)
+        private static string DecryptString(string cipherText, byte[] key = null)
         {
             try
             {
-                byte[] key = GetEncryptionKey();
+                if (key == null) key = GetEncryptionKey();
                 byte[] fullCipher = Convert.FromBase64String(cipherText);
                 using (var aes = Aes.Create())
                 {
@@ -237,7 +249,18 @@ namespace SignalSafetyMenu.Patches
                 if (!File.Exists(path)) return null;
                 string encrypted = File.ReadAllText(path).Trim();
                 if (string.IsNullOrEmpty(encrypted)) return null;
-                return DecryptString(encrypted);
+                string result = DecryptString(encrypted);
+                if (result == null)
+                {
+                    // Try legacy key (included MachineName) for migration
+                    result = DecryptString(encrypted, GetLegacyEncryptionKey());
+                    if (result != null)
+                    {
+                        // Re-encrypt with new key
+                        try { File.WriteAllText(path, EncryptString(result)); } catch { }
+                    }
+                }
+                return result;
             }
             catch { return null; }
         }
@@ -249,10 +272,14 @@ namespace SignalSafetyMenu.Patches
             return (int)(BitConverter.ToUInt32(buf, 0) % (uint)max);
         }
 
+        private static readonly object _spoofLock = new object();
+
         public static string GetSpoofedHWID()
         {
-            if (_spoofedHWID == null)
+            if (_spoofedHWID != null) return _spoofedHWID;
+            lock (_spoofLock)
             {
+                if (_spoofedHWID != null) return _spoofedHWID;
                 _spoofedHWID = ReadEncrypted(HWIDFilePath);
                 if (string.IsNullOrEmpty(_spoofedHWID))
                 {
@@ -260,36 +287,40 @@ namespace SignalSafetyMenu.Patches
                     _spoofedHWID = new Guid(guidBytes).ToString();
                     WriteEncrypted(HWIDFilePath, _spoofedHWID);
                 }
+                return _spoofedHWID;
             }
-            return _spoofedHWID;
         }
 
         public static string GetSpoofedPlayFabId()
         {
-            if (_spoofedPlayFabId == null)
+            if (_spoofedPlayFabId != null) return _spoofedPlayFabId;
+            lock (_spoofLock)
             {
+                if (_spoofedPlayFabId != null) return _spoofedPlayFabId;
                 _spoofedPlayFabId = ReadEncrypted(PlayFabIdFilePath);
                 if (string.IsNullOrEmpty(_spoofedPlayFabId))
                 {
                     _spoofedPlayFabId = BitConverter.ToString(GenerateRandomBytes(8)).Replace("-", "");
                     WriteEncrypted(PlayFabIdFilePath, _spoofedPlayFabId);
                 }
+                return _spoofedPlayFabId;
             }
-            return _spoofedPlayFabId;
         }
 
         public static string GetSpoofedMothershipId()
         {
-            if (_spoofedMothershipId == null)
+            if (_spoofedMothershipId != null) return _spoofedMothershipId;
+            lock (_spoofLock)
             {
+                if (_spoofedMothershipId != null) return _spoofedMothershipId;
                 _spoofedMothershipId = ReadEncrypted(MothershipIdFilePath);
                 if (string.IsNullOrEmpty(_spoofedMothershipId))
                 {
                     _spoofedMothershipId = Guid.NewGuid().ToString();
                     WriteEncrypted(MothershipIdFilePath, _spoofedMothershipId);
                 }
+                return _spoofedMothershipId;
             }
-            return _spoofedMothershipId;
         }
 
         private static byte[] GenerateRandomBytes(int count)
@@ -315,7 +346,8 @@ namespace SignalSafetyMenu.Patches
             {
                 lock (_throttleLock)
                 {
-                    float now = Time.unscaledTime;
+                    float now;
+                    try { now = Time.unscaledTime; } catch { now = (float)(DateTime.UtcNow - new DateTime(2025, 1, 1)).TotalSeconds; }
 
                     if (!_eventTimestamps.ContainsKey(eventCode))
                         _eventTimestamps[eventCode] = new Queue<float>();
@@ -386,22 +418,50 @@ namespace SignalSafetyMenu.Patches
 
         public static bool DetectConflicts()
         {
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            // Only check BepInEx plugin DLLs, not all loaded assemblies
+            // (game assemblies can contain "Bark" etc. causing false positives)
+            try
             {
-                string name = asm.GetName().Name;
+                string pluginsPath = Path.Combine(
+                    Path.GetDirectoryName(UnityEngine.Application.dataPath),
+                    "BepInEx", "plugins");
 
-                if (name == "SignalSafety" || name.Contains("SignalSafetyRaw"))
-                {
-                    Plugin.Instance?.Log("Conflict detected - please use only one safety plugin");
-                    AudioManager.Play("warning", AudioManager.AudioCategory.Warning);
-                    return true;
-                }
+                if (!Directory.Exists(pluginsPath)) return false;
 
-                if (name.Contains("Bark") || name.Contains("Aspect") || name.Contains("Lunacy"))
+                var conflictNames = new[] { "Bark", "BarkMenu", "Aspect", "AspectMenu", "Lunacy",
+                    "iiMenu", "iisStupidMenu", "GoldMenu", "MiiMenu", "Bobcat", "BobcatMenu",
+                    "Gecko", "PigeonClient", "MonkeMenuV2", "DaMonkeMenu", "CheatMenu" };
+                var selfConflict = new[] { "SignalSafety", "SignalSafetyRaw" };
+
+                foreach (string dll in Directory.GetFiles(pluginsPath, "*.dll", SearchOption.AllDirectories))
                 {
-                    Plugin.Instance?.Log($"[WARNING] Detected other mod: {name} � will override its patches");
-                    AudioManager.Play("patch_conflict", AudioManager.AudioCategory.Warning);
+                    string fileName = Path.GetFileNameWithoutExtension(dll);
+                    if (fileName == "SignalSafetyMenu" || fileName == "SignalAutoUpdater") continue;
+
+                    foreach (string self in selfConflict)
+                    {
+                        if (string.Equals(fileName, self, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Plugin.Instance?.Log("Conflict detected - please use only one safety plugin");
+                            AudioManager.Play("warning", AudioManager.AudioCategory.Warning);
+                            return true;
+                        }
+                    }
+
+                    foreach (string mod in conflictNames)
+                    {
+                        if (fileName.IndexOf(mod, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            Plugin.Instance?.Log($"[WARNING] Detected other mod plugin: {fileName} - will override its patches");
+                            AudioManager.Play("patch_conflict", AudioManager.AudioCategory.Warning);
+                            return true;
+                        }
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance?.Log($"[DetectConflicts] Error: {ex.Message}");
             }
 
             return false;
@@ -422,7 +482,6 @@ namespace SignalSafetyMenu.Patches
         {
             try { SafetyPatches.BanAlreadyAnnounced = false; } catch { }
             try { SafetyPatches._rpcProtectionApplied = false; } catch { }
-            try { SafetyPatches.BypassModCheckers(); } catch { }
             try
             {
                 if (Plugin.Instance != null)
@@ -435,13 +494,25 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    [HarmonyPatch(typeof(PhotonNetworkController), "OnLeftRoom")]
+    [HarmonyPatch(typeof(PhotonNetworkController), "OnDisconnected")]
     [HarmonyPriority(Priority.First)]
     public class PatchLeftRoom
     {
         [HarmonyPostfix]
         public static void Postfix()
         {
+            try { AntiReport.OnRoomLeft(); } catch { }
+        }
+    }
+
+    [HarmonyPatch(typeof(PhotonNetworkController), "OnJoinedRoom")]
+    [HarmonyPriority(Priority.Last)]
+    public class PatchJoinedRoomCleanAuras
+    {
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            // Clean stale auras from previous room on room switch
             try { AntiReport.OnRoomLeft(); } catch { }
         }
     }
@@ -522,7 +593,21 @@ namespace SignalSafetyMenu.Patches
 
     [HarmonyPatch(typeof(MonkeAgent), "QuitDelay")]
     [HarmonyPriority(Priority.First)]
-    public class PatchQuitDelay { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchQuitDelay; }
+    public class PatchQuitDelay
+    {
+        [HarmonyPrefix]
+        public static bool Prefix(ref IEnumerator __result)
+        {
+            if (!SafetyConfig.PatchQuitDelay) return true;
+            __result = EmptyCoroutine();
+            return false;
+        }
+
+        private static IEnumerator EmptyCoroutine()
+        {
+            yield break;
+        }
+    }
 
     [HarmonyPatch(typeof(MonkeAgent), "ShouldDisconnectFromRoom")]
     [HarmonyPriority(Priority.First)]
@@ -592,7 +677,9 @@ namespace SignalSafetyMenu.Patches
                     string upper = failMessage.ToUpperInvariant();
                     if ((upper.Contains("YOUR ACCOUNT") && upper.Contains("BANNED")) ||
                         upper.Contains("BAN EXPIRES") ||
-                        upper.Contains("HAS BEEN BANNED"))
+                        upper.Contains("HAS BEEN BANNED") ||
+                        upper.Contains("SUSPENDED") ||
+                        upper.Contains("SUSPENSION"))
                     {
                         Plugin.Instance?.Log($"[BAN] Failure message ban: {failMessage.Substring(0, Math.Min(failMessage.Length, 80))}");
                         SafetyPatches.AnnounceBanOnce();
@@ -944,25 +1031,64 @@ namespace SignalSafetyMenu.Patches
         {
             public string Model, Name, OS, CPU, GPU, GPUVendor;
             public int VRAM, RAM, Cores;
+            public bool IsAndroid;
         }
 
         public static readonly Profile[] All = new Profile[]
         {
-            new Profile { Model = "Oculus Quest 2", Name = "Quest 2", OS = "Android OS 10 / API-29", CPU = "Qualcomm Snapdragon XR2", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 1024, RAM = 6144, Cores = 8 },
-            new Profile { Model = "Oculus Quest 2", Name = "My Quest", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 1024, RAM = 6144, Cores = 8 },
-            new Profile { Model = "Meta Quest 3", Name = "Quest 3", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2 Gen 2", GPU = "Adreno (TM) 740", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 8192, Cores = 8 },
-            new Profile { Model = "Meta Quest 3", Name = "Meta Quest", OS = "Android OS 13 / API-33", CPU = "Qualcomm Snapdragon XR2 Gen 2", GPU = "Adreno (TM) 740", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 8192, Cores = 8 },
-            new Profile { Model = "Meta Quest 3S", Name = "Quest 3S", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2 Gen 2", GPU = "Adreno (TM) 740", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 8192, Cores = 8 },
-            new Profile { Model = "Meta Quest Pro", Name = "Quest Pro", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2 Gen 1", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 12288, Cores = 8 },
-            new Profile { Model = "Oculus Rift S", Name = "DESKTOP", OS = "Windows 10  (10.0.19045) 64bit", CPU = "AMD Ryzen 5 3600 6-Core Processor", GPU = "NVIDIA GeForce GTX 1660 SUPER", GPUVendor = "NVIDIA Corporation", VRAM = 6144, RAM = 16384, Cores = 12 },
-            new Profile { Model = "Oculus Rift S", Name = "Gaming PC", OS = "Windows 10  (10.0.19044) 64bit", CPU = "Intel(R) Core(TM) i5-10400 CPU @ 2.90GHz", GPU = "NVIDIA GeForce RTX 2060", GPUVendor = "NVIDIA Corporation", VRAM = 6144, RAM = 16384, Cores = 12 },
-            new Profile { Model = "Valve Index", Name = "DESKTOP", OS = "Windows 11  (10.0.22621) 64bit", CPU = "AMD Ryzen 7 5800X 8-Core Processor", GPU = "NVIDIA GeForce RTX 3070", GPUVendor = "NVIDIA Corporation", VRAM = 8192, RAM = 32768, Cores = 16 },
-            new Profile { Model = "Valve Index", Name = "PC", OS = "Windows 10  (10.0.19045) 64bit", CPU = "Intel(R) Core(TM) i7-12700K CPU @ 3.60GHz", GPU = "NVIDIA GeForce RTX 3080", GPUVendor = "NVIDIA Corporation", VRAM = 10240, RAM = 32768, Cores = 20 },
-            new Profile { Model = "HTC VIVE Pro 2", Name = "Home PC", OS = "Windows 11  (10.0.22631) 64bit", CPU = "Intel(R) Core(TM) i7-12700K CPU @ 3.60GHz", GPU = "NVIDIA GeForce RTX 4070", GPUVendor = "NVIDIA Corporation", VRAM = 12288, RAM = 32768, Cores = 20 },
-            new Profile { Model = "HP Reverb G2", Name = "DESKTOP", OS = "Windows 11  (10.0.22000) 64bit", CPU = "AMD Ryzen 5 5600X 6-Core Processor", GPU = "AMD Radeon RX 6700 XT", GPUVendor = "AMD", VRAM = 12288, RAM = 16384, Cores = 12 },
-            new Profile { Model = "Oculus Rift S", Name = "LAPTOP", OS = "Windows 10  (10.0.19043) 64bit", CPU = "AMD Ryzen 7 3700X 8-Core Processor", GPU = "AMD Radeon RX 5700 XT", GPUVendor = "AMD", VRAM = 8192, RAM = 16384, Cores = 16 },
-            new Profile { Model = "Pico 4", Name = "Pico 4", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 1024, RAM = 8192, Cores = 8 },
+            new Profile { Model = "Oculus Quest 2", Name = "Quest 2", OS = "Android OS 10 / API-29", CPU = "Qualcomm Snapdragon XR2", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 1024, RAM = 6144, Cores = 8, IsAndroid = true },
+            new Profile { Model = "Oculus Quest 2", Name = "My Quest", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 1024, RAM = 6144, Cores = 8, IsAndroid = true },
+            new Profile { Model = "Meta Quest 3", Name = "Quest 3", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2 Gen 2", GPU = "Adreno (TM) 740", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 8192, Cores = 8, IsAndroid = true },
+            new Profile { Model = "Meta Quest 3", Name = "Meta Quest", OS = "Android OS 13 / API-33", CPU = "Qualcomm Snapdragon XR2 Gen 2", GPU = "Adreno (TM) 740", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 8192, Cores = 8, IsAndroid = true },
+            new Profile { Model = "Meta Quest 3S", Name = "Quest 3S", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2 Gen 2", GPU = "Adreno (TM) 740", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 8192, Cores = 8, IsAndroid = true },
+            new Profile { Model = "Meta Quest Pro", Name = "Quest Pro", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2 Gen 1", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 2048, RAM = 12288, Cores = 8, IsAndroid = true },
+            new Profile { Model = "Oculus Rift S", Name = "DESKTOP", OS = "Windows 10  (10.0.19045) 64bit", CPU = "AMD Ryzen 5 3600 6-Core Processor", GPU = "NVIDIA GeForce GTX 1660 SUPER", GPUVendor = "NVIDIA Corporation", VRAM = 6144, RAM = 16384, Cores = 12, IsAndroid = false },
+            new Profile { Model = "Oculus Rift S", Name = "Gaming PC", OS = "Windows 10  (10.0.19044) 64bit", CPU = "Intel(R) Core(TM) i5-10400 CPU @ 2.90GHz", GPU = "NVIDIA GeForce RTX 2060", GPUVendor = "NVIDIA Corporation", VRAM = 6144, RAM = 16384, Cores = 12, IsAndroid = false },
+            new Profile { Model = "Valve Index", Name = "DESKTOP", OS = "Windows 11  (10.0.22621) 64bit", CPU = "AMD Ryzen 7 5800X 8-Core Processor", GPU = "NVIDIA GeForce RTX 3070", GPUVendor = "NVIDIA Corporation", VRAM = 8192, RAM = 32768, Cores = 16, IsAndroid = false },
+            new Profile { Model = "Valve Index", Name = "PC", OS = "Windows 10  (10.0.19045) 64bit", CPU = "Intel(R) Core(TM) i7-12700K CPU @ 3.60GHz", GPU = "NVIDIA GeForce RTX 3080", GPUVendor = "NVIDIA Corporation", VRAM = 10240, RAM = 32768, Cores = 20, IsAndroid = false },
+            new Profile { Model = "HTC VIVE Pro 2", Name = "Home PC", OS = "Windows 11  (10.0.22631) 64bit", CPU = "Intel(R) Core(TM) i7-12700K CPU @ 3.60GHz", GPU = "NVIDIA GeForce RTX 4070", GPUVendor = "NVIDIA Corporation", VRAM = 12288, RAM = 32768, Cores = 20, IsAndroid = false },
+            new Profile { Model = "HP Reverb G2", Name = "DESKTOP", OS = "Windows 11  (10.0.22000) 64bit", CPU = "AMD Ryzen 5 5600X 6-Core Processor", GPU = "AMD Radeon RX 6700 XT", GPUVendor = "AMD", VRAM = 12288, RAM = 16384, Cores = 12, IsAndroid = false },
+            new Profile { Model = "Oculus Rift S", Name = "LAPTOP", OS = "Windows 10  (10.0.19043) 64bit", CPU = "AMD Ryzen 7 3700X 8-Core Processor", GPU = "AMD Radeon RX 5700 XT", GPUVendor = "AMD", VRAM = 8192, RAM = 16384, Cores = 16, IsAndroid = false },
+            new Profile { Model = "Pico 4", Name = "Pico 4", OS = "Android OS 12 / API-31", CPU = "Qualcomm Snapdragon XR2", GPU = "Adreno (TM) 650", GPUVendor = "Qualcomm", VRAM = 1024, RAM = 8192, Cores = 8, IsAndroid = true },
         };
+
+        // Pre-filtered arrays for platform-safe selection
+        private static Profile[] _pcProfiles;
+        private static Profile[] _androidProfiles;
+
+        private static Profile[] PCProfiles
+        {
+            get
+            {
+                if (_pcProfiles == null)
+                {
+                    var list = new System.Collections.Generic.List<Profile>();
+                    foreach (var p in All) { if (!p.IsAndroid) list.Add(p); }
+                    _pcProfiles = list.ToArray();
+                }
+                return _pcProfiles;
+            }
+        }
+
+        private static Profile[] AndroidProfiles
+        {
+            get
+            {
+                if (_androidProfiles == null)
+                {
+                    var list = new System.Collections.Generic.List<Profile>();
+                    foreach (var p in All) { if (p.IsAndroid) list.Add(p); }
+                    _androidProfiles = list.ToArray();
+                }
+                return _androidProfiles;
+            }
+        }
+
+        private static Profile[] GetPlatformProfiles()
+        {
+            // On PC (Steam build), only use PC profiles to avoid platform mismatch
+            return Application.platform == RuntimePlatform.Android ? AndroidProfiles : PCProfiles;
+        }
 
         private static int _selectedIndex = -1;
         private static readonly string ProfilePath = Path.Combine(Application.persistentDataPath, ".gl_dp");
@@ -973,20 +1099,21 @@ namespace SignalSafetyMenu.Patches
             {
                 if (_selectedIndex < 0)
                 {
+                    Profile[] platformProfiles = GetPlatformProfiles();
                     try
                     {
                         string stored = SafetyPatches.ReadEncryptedPublic(ProfilePath);
-                        if (stored != null && int.TryParse(stored, out int idx) && idx >= 0 && idx < All.Length)
+                        if (stored != null && int.TryParse(stored, out int idx) && idx >= 0 && idx < platformProfiles.Length)
                             _selectedIndex = idx;
                         else
                         {
-                            _selectedIndex = SafetyPatches.SecureRandomInt(All.Length);
+                            _selectedIndex = SafetyPatches.SecureRandomInt(platformProfiles.Length);
                             SafetyPatches.WriteEncryptedPublic(ProfilePath, _selectedIndex.ToString());
                         }
                     }
-                    catch { _selectedIndex = SafetyPatches.SecureRandomInt(All.Length); }
+                    catch { _selectedIndex = SafetyPatches.SecureRandomInt(platformProfiles.Length); }
                 }
-                return All[_selectedIndex];
+                return GetPlatformProfiles()[_selectedIndex];
             }
         }
     }
@@ -1212,7 +1339,9 @@ namespace SignalSafetyMenu.Patches
         {
             if (!SafetyConfig.PatchAutoBanList) return true;
             if (!SafetyConfig.NameBanBypassEnabled) return true;
-            __result = false;
+            // Game returns true = name is CLEAN, false = name is BANNED
+            // We return true to always say "name is clean"
+            __result = true;
             return false;
         }
     }
@@ -1249,36 +1378,39 @@ namespace SignalSafetyMenu.Patches
             if (!SafetyConfig.PatchBanDetection) return true;
             try
             {
-                if (error != null && error.ErrorMessage != null && error.ErrorMessage.Contains("is currently banned"))
+                string errMsg = error?.ErrorMessage;
+                if (errMsg != null && (errMsg.Contains("is currently banned") || errMsg.Contains("suspended") || errMsg.Contains("suspension")))
                 {
                     SafetyPatches.AnnounceBanOnce();
 
                     if (error.ErrorDetails != null)
                     {
+                        var banLines = new System.Text.StringBuilder();
                         foreach (var kvp in error.ErrorDetails)
                         {
                             string reason = kvp.Key;
                             string expiry = kvp.Value != null && kvp.Value.Count > 0 ? kvp.Value[0] : "Unknown";
                             bool indefinite = expiry == "Indefinite";
 
-                            string banText = $"Account banned.\r\nReason: {reason}\r\n";
+                            banLines.Append($"Reason: {reason}\r\n");
                             if (indefinite)
-                                banText += "Duration: Indefinite\r\nUnban: Never";
+                                banLines.Append("Duration: Indefinite\r\nUnban: Never\r\n");
                             else
                             {
                                 try
                                 {
                                     DateTime unbanDate = DateTime.Parse(expiry);
                                     TimeSpan remaining = unbanDate - DateTime.UtcNow;
-                                    banText += $"Time Left: {remaining.Days}d {remaining.Hours}h {remaining.Minutes}m\r\nUnban: {unbanDate:MMMM dd, yyyy h:mm tt}";
+                                    banLines.Append($"Time Left: {remaining.Days}d {remaining.Hours}h {remaining.Minutes}m\r\nUnban: {unbanDate:MMMM dd, yyyy h:mm tt}\r\n");
                                 }
-                                catch { banText += $"Expiry: {expiry}"; }
+                                catch { banLines.Append($"Expiry: {expiry}\r\n"); }
                             }
-
-                            Plugin.Instance?.Log(banText);
-                            GorillaComputer.instance?.GeneralFailureMessage(banText);
-                            return false;
                         }
+
+                        string banText = $"Account banned.\r\n{banLines}";
+                        Plugin.Instance?.Log(banText);
+                        GorillaComputer.instance?.GeneralFailureMessage(banText);
+                        return false;
                     }
                 }
             }
@@ -1305,8 +1437,11 @@ namespace SignalSafetyMenu.Patches
                     {
                         try
                         {
-                            if (error?.ErrorMessage?.Contains("banned") == true)
+                            string msg = error?.ErrorMessage;
+                            if (msg != null && (msg.Contains("banned") || msg.Contains("suspended") || msg.Contains("suspension")))
                             {
+                                // Still invoke original so login flow handles ban properly
+                                originalCallback?.Invoke(error);
                                 return;
                             }
                             originalCallback?.Invoke(error);
@@ -1337,8 +1472,10 @@ namespace SignalSafetyMenu.Patches
                     {
                         try
                         {
-                            if (error?.ErrorMessage?.Contains("banned") == true)
+                            string msg = error?.ErrorMessage;
+                            if (msg != null && (msg.Contains("banned") || msg.Contains("suspended") || msg.Contains("suspension")))
                             {
+                                originalCallback?.Invoke(error);
                                 return;
                             }
                             originalCallback?.Invoke(error);
@@ -1569,8 +1706,11 @@ namespace SignalSafetyMenu.Patches
             if (!SafetyConfig.PatchModCheckers) return true;
             if (_bypassActive) return true;
             if (!__instance.IsLocal) return true;
-            if (propertiesToSet.Keys.Cast<object>().Any(k => !SafeProperties.Contains(k.ToString())))
-                return false;
+            foreach (object k in propertiesToSet.Keys)
+            {
+                if (!SafeProperties.Contains(k.ToString()))
+                    return false;
+            }
             return true;
         }
     }
@@ -1585,8 +1725,11 @@ namespace SignalSafetyMenu.Patches
             if (!SafetyConfig.PatchModCheckers) return true;
             if (PatchSetCustomProperties._bypassActive) return true;
             if (!__instance.IsLocal) return true;
-            if (value.Keys.Cast<object>().Any(k => !PatchSetCustomProperties.SafeProperties.Contains(k.ToString())))
-                return false;
+            foreach (object k in value.Keys)
+            {
+                if (!PatchSetCustomProperties.SafeProperties.Contains(k.ToString()))
+                    return false;
+            }
             return true;
         }
     }
@@ -2015,6 +2158,8 @@ namespace SignalSafetyMenu.Patches
     {
         private static float _lastCheck = 0f;
         private static LurkerGhost _cached = null;
+        private static int _failedSearches = 0;
+        private const int MAX_FAILED_SEARCHES = 10;
 
         public static void Update()
         {
@@ -2026,8 +2171,10 @@ namespace SignalSafetyMenu.Patches
             {
                 if (_cached == null)
                 {
+                    if (_failedSearches >= MAX_FAILED_SEARCHES) return;
                     _cached = UnityEngine.Object.FindAnyObjectByType<LurkerGhost>();
-                    if (_cached == null) return;
+                    if (_cached == null) { _failedSearches++; return; }
+                    _failedSearches = 0;
                 }
 
                 if (_cached.currentState == LurkerGhost.ghostState.charge && _cached.targetPlayer == NetworkSystem.Instance.LocalPlayer)
@@ -2068,6 +2215,9 @@ namespace SignalSafetyMenu.Patches
                 if (GorillaComputer.instance?.screenText == null) return;
                 string current = GorillaComputer.instance.screenText.currentText;
                 if (string.IsNullOrEmpty(current) || !current.Contains("STEAM")) return;
+                // Don't mangle ban messages
+                string lower = current.ToLowerInvariant();
+                if (lower.Contains("banned") || lower.Contains("suspended") || lower.Contains("suspension")) return;
 
                 GorillaComputer.instance.screenText.Set(
                     current.Replace("STEAM", "QUEST").Replace("Steam", "Quest"));
@@ -2080,6 +2230,7 @@ namespace SignalSafetyMenu.Patches
     {
         public static int TargetElo = 4000;
         public static int TargetBadge = 7;
+        private static float _lastApply = 0f;
 
         private static readonly string[] BadgeNames = { "Wood", "Rock", "Bronze", "Silver", "Gold", "Platinum", "Crystal", "Banana" };
 
@@ -2090,6 +2241,7 @@ namespace SignalSafetyMenu.Patches
             TargetElo += up ? 100 : -100;
             if (TargetElo > 4000) TargetElo = 0;
             if (TargetElo < 0) TargetElo = 4000;
+            _lastApply = 0f; // force immediate re-apply on change
         }
 
         public static void CycleBadge(bool up)
@@ -2097,11 +2249,14 @@ namespace SignalSafetyMenu.Patches
             TargetBadge += up ? 1 : -1;
             if (TargetBadge >= BadgeNames.Length) TargetBadge = 0;
             if (TargetBadge < 0) TargetBadge = BadgeNames.Length - 1;
+            _lastApply = 0f;
         }
 
         public static void Update()
         {
             if (!SafetyConfig.RankedSpoofEnabled) return;
+            if (Time.time - _lastApply < 2f) return;
+            _lastApply = Time.time;
 
             try
             {
@@ -2166,14 +2321,13 @@ namespace SignalSafetyMenu.Patches
             {
                 var inp = ControllerInputPoller.instance;
                 if (inp == null) return;
+                // Don't zero secondary buttons so user can toggle this off via menu
                 inp.leftControllerGripFloat = 0f;
                 inp.rightControllerGripFloat = 0f;
                 inp.leftControllerIndexFloat = 0f;
                 inp.rightControllerIndexFloat = 0f;
                 inp.leftControllerPrimaryButton = false;
                 inp.rightControllerPrimaryButton = false;
-                inp.leftControllerSecondaryButton = false;
-                inp.rightControllerSecondaryButton = false;
                 if (GorillaTagger.Instance?.rigidbody != null)
                     GorillaTagger.Instance.rigidbody.linearVelocity = Vector3.zero;
             }
@@ -2229,7 +2383,7 @@ namespace SignalSafetyMenu.Patches
             try
             {
                 int turnData = (__result >> 8) & 0x1F;
-                int spoofedFps = SafetyConfig.SpoofedFPS + UnityEngine.Random.Range(-5, 6);
+                int spoofedFps = SafetyConfig.SpoofedFPS + SafetyPatches.SecureRandomInt(11) - 5;
                 spoofedFps = Mathf.Clamp(spoofedFps, 30, 255);
                 __result = (short)(spoofedFps + (turnData << 8));
             }
@@ -2254,6 +2408,8 @@ namespace SignalSafetyMenu.Patches
             }
             return true;
         }
+
+        public static void ResetFirstAwake() { _firstAwake = true; }
     }
 
     [HarmonyPatch(typeof(AgeSliderWithProgressBar), "Tick")]
@@ -2338,13 +2494,13 @@ namespace SignalSafetyMenu.Patches
                         string k = key.ToString();
                         if (k == "didTutorial")
                             cleanProps[key] = props[key];
+                        else
+                            cleanProps[key] = null; // Photon removes keys set to null
                     }
                     PatchSetCustomProperties._bypassActive = true;
                     try { PhotonNetwork.LocalPlayer.SetCustomProperties(cleanProps); } finally { PatchSetCustomProperties._bypassActive = false; }
                 }
                 catch { }
-
-                GC.Collect();
 
                 Plugin.Instance?.Log("[LobbyFix] Cleared RPCs, properties, and counters");
                 return true;
@@ -2379,15 +2535,17 @@ namespace SignalSafetyMenu.Patches
     [HarmonyPriority(Priority.First)]
     public class PatchRequestCosmetics
     {
-        private static readonly List<float> callTimestamps = new List<float>();
+        private static int _count;
+        private static float _windowStart;
 
         [HarmonyPrefix]
         public static bool Prefix(VRRig __instance)
         {
             if (!SafetyConfig.AntiCrashEnabled || !__instance.isLocal) return true;
-            callTimestamps.Add(Time.time);
-            callTimestamps.RemoveAll(t => Time.time - t > 1f);
-            return callTimestamps.Count < 15;
+            float now = Time.time;
+            if (now - _windowStart > 1f) { _windowStart = now; _count = 0; }
+            _count++;
+            return _count < 15;
         }
     }
 
@@ -2395,15 +2553,17 @@ namespace SignalSafetyMenu.Patches
     [HarmonyPriority(Priority.First)]
     public class PatchRequestMaterialColor
     {
-        private static readonly List<float> callTimestamps = new List<float>();
+        private static int _count;
+        private static float _windowStart;
 
         [HarmonyPrefix]
         public static bool Prefix(VRRig __instance)
         {
             if (!SafetyConfig.AntiCrashEnabled || !__instance.isLocal) return true;
-            callTimestamps.Add(Time.time);
-            callTimestamps.RemoveAll(t => Time.time - t > 1f);
-            return callTimestamps.Count < 15;
+            float now = Time.time;
+            if (now - _windowStart > 1f) { _windowStart = now; _count = 0; }
+            _count++;
+            return _count < 15;
         }
     }
 
@@ -2437,7 +2597,7 @@ namespace SignalSafetyMenu.Patches
                 Player sender = PhotonNetwork.NetworkingClient.CurrentRoom.GetPlayer(eventData.Sender, false);
                 object[] data = eventData.CustomData != null ? (object[])eventData.CustomData : new object[0];
                 string cmd = data.Length > 0 ? (string)data[0] : "";
-                if (sender != PhotonNetwork.LocalPlayer && data.Length > 1 && data[1] is double num)
+                if (sender?.ActorNumber != PhotonNetwork.LocalPlayer?.ActorNumber && data.Length > 1 && data[1] is double num)
                 {
                     if (num == (double)PhotonNetwork.LocalPlayer.ActorNumber && cmd == "leaveGame")
                         return false;
@@ -2485,17 +2645,7 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    [HarmonyPatch(typeof(GameEntityManager), "JoinWithItemsRPC")]
-    [HarmonyPriority(Priority.First)]
-    public class PatchJoinWithItemsRPC
-    {
-        [HarmonyPrefix]
-        public static bool Prefix(byte[] stateData)
-        {
-            if (!SafetyConfig.AntiCrashEnabled) return true;
-            return stateData == null || stateData.Length <= 1000;
-        }
-    }
+    // GameEntityManager.JoinWithItemsRPC was removed in Feb 2026 update - patch no longer needed
 
     [HarmonyPatch(typeof(VRRig), "PostTick")]
     [HarmonyPriority(Priority.First)]
@@ -2622,7 +2772,7 @@ namespace SignalSafetyMenu.Patches
                 if (obj == null || obj.ErrorMessage == null) return true;
                 string msg = obj.ErrorMessage.ToLowerInvariant();
 
-                if (msg.Contains("currently banned"))
+                if (msg.Contains("currently banned") || msg.Contains("suspended") || msg.Contains("suspension"))
                 {
                     bool isIpBan = msg.Contains("ip");
                     string banType = isIpBan ? "IP" : "Account";
@@ -2707,21 +2857,8 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    [HarmonyPatch(typeof(PhotonNetworkController), "FixedUpdate")]
-    [HarmonyPriority(Priority.First)]
-    public class PatchAFKKick
-    {
-        [HarmonyPrefix]
-        public static void Prefix(PhotonNetworkController __instance)
-        {
-            if (!SafetyConfig.AntiAFKKickEnabled) return;
-            try
-            {
-                __instance.disableAFKKick = true;
-            }
-            catch { }
-        }
-    }
+    // AFK kick is handled once in Plugin.cs Update() with _afkKickDisabled guard
+    // Removed PatchAFKKick from FixedUpdate to avoid setting disableAFKKick 50-90x/sec
 
     [HarmonyPatch(typeof(PhotonNetworkController), "OnApplicationPause")]
     [HarmonyPriority(Priority.First)]
@@ -2751,13 +2888,7 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    [HarmonyPatch(typeof(GorillaComputer), "SaveModAccountData")]
-    [HarmonyPriority(Priority.First)]
-    public class PatchSaveModAccountData
-    {
-        [HarmonyPrefix]
-        public static bool Prefix() => !SafetyConfig.BlockModAccountSave;
-    }
+    // SaveModAccountData was removed in Feb 2026 update - patch no longer needed
 
     [HarmonyPatch(typeof(MonkeAgent), "OnApplicationPause")]
     [HarmonyPriority(Priority.First)]
@@ -2798,6 +2929,21 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
+    [HarmonyPatch(typeof(GorillaComputer), "SetNameBySafety")]
+    [HarmonyPriority(Priority.First)]
+    public class PatchSetNameBySafety
+    {
+        [HarmonyPrefix]
+        public static bool Prefix(ref bool isSafety)
+        {
+            if (!SafetyConfig.NameBanBypassEnabled) return true;
+            // Prevent the game from overwriting our custom name
+            // SetNameBySafety sets name based on KID/safety mode
+            isSafety = false;
+            return true;
+        }
+    }
+
     [HarmonyPatch(typeof(GorillaPlayerScoreboardLine), "SetReportState")]
     [HarmonyPriority(Priority.First)]
     public class PatchSetReportState
@@ -2823,6 +2969,121 @@ namespace SignalSafetyMenu.Patches
                 doIt = false;
             }
             return true;
+        }
+    }
+
+    // ── Crash Report Blocking ──────────────────────────────────────────
+    // BacktraceManager sends crash reports to devs. Patching Awake to override
+    // BeforeSend so all crash data is dropped, and Start to prevent PlayFab
+    // from fetching the server-controlled sample rate.
+
+    [HarmonyPatch(typeof(BacktraceManager), "Awake")]
+    [HarmonyPriority(Priority.Last)]
+    public class PatchBacktraceAwake
+    {
+        [HarmonyPostfix]
+        public static void Postfix(BacktraceManager __instance)
+        {
+            if (!SafetyPatches.ShouldBlockTelemetry()) return;
+            try
+            {
+                var client = __instance.GetComponent<BacktraceClient>();
+                if (client != null)
+                    client.BeforeSend = (BacktraceData data) => null; // Block all crash reports
+            }
+            catch { SafetyPatches.TrackError("BacktraceAwake"); }
+        }
+    }
+
+    [HarmonyPatch(typeof(BacktraceManager), "Start")]
+    [HarmonyPriority(Priority.First)]
+    public class PatchBacktraceStart
+    {
+        [HarmonyPrefix]
+        public static bool Prefix()
+        {
+            // Prevents PlayFab sample rate fetch — no point if we block everything
+            return !SafetyPatches.ShouldBlockTelemetry();
+        }
+    }
+
+    // ── Mothership Notification Interception ───────────────────────────
+    // GorillaMetaReport.OnNotification handles Warning, Mute, Unmute from
+    // the Mothership server. Each handler calls GorillaTelemetry.PostNotificationEvent
+    // which confirms to the server that the notification was received.
+    // Blocking this prevents mute enforcement AND telemetry confirmation.
+
+    [HarmonyPatch(typeof(GorillaMetaReport), "OnNotification")]
+    [HarmonyPriority(Priority.First)]
+    public class PatchMetaReportNotification
+    {
+        [HarmonyPrefix]
+        public static bool Prefix()
+        {
+            if (!SafetyConfig.PatchSendReport) return true;
+            try
+            {
+                Plugin.Instance?.Log("[Safety] Blocked GorillaMetaReport notification (mute/warning/unmute)");
+            }
+            catch { }
+            return false; // Skip original — no mute, no telemetry confirmation
+        }
+    }
+
+    // ── FailedToSpawn Crash Protection ─────────────────────────────────
+    // GorillaWrappedSerializer.FailedToSpawn can call PhotonNetwork.Destroy on
+    // owned objects which may trigger disconnects. Safely deactivate instead.
+
+    [HarmonyPatch(typeof(GorillaWrappedSerializer), "FailedToSpawn")]
+    [HarmonyPriority(Priority.First)]
+    public class PatchFailedToSpawn
+    {
+        [HarmonyPrefix]
+        public static bool Prefix(GorillaWrappedSerializer __instance)
+        {
+            if (!SafetyConfig.AntiCrashEnabled) return true;
+            try
+            {
+                __instance.gameObject.SetActive(false);
+            }
+            catch { SafetyPatches.TrackError("FailedToSpawn"); }
+            return false; // Skip original — prevents PhotonNetwork.Destroy on owned objects
+        }
+    }
+
+    [HarmonyPatch(typeof(Gorillanalytics), "UploadGorillanalytics")]
+    [HarmonyPriority(Priority.First)]
+    public class PatchGorillanalyticsUpload
+    {
+        [HarmonyPrefix]
+        public static bool Prefix()
+        {
+            return !SafetyPatches.ShouldBlockTelemetry();
+        }
+    }
+
+    [HarmonyPatch(typeof(VRRig), "GrabbedByPlayer")]
+    [HarmonyPriority(Priority.First)]
+    public class PatchGrabbedByPlayer
+    {
+        [HarmonyPrefix]
+        public static bool Prefix(VRRig __instance)
+        {
+            if (!SafetyConfig.AntiCrashEnabled) return true;
+            if (__instance == VRRig.LocalRig)
+                return false;
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(GuardianRPCs), "GuardianLaunchPlayer")]
+    [HarmonyPriority(Priority.First)]
+    public class PatchGuardianLaunchPlayer
+    {
+        [HarmonyPrefix]
+        public static bool Prefix()
+        {
+            return !SafetyConfig.AntiCrashEnabled;
         }
     }
 }

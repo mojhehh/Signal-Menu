@@ -9,7 +9,7 @@ using SignalSafetyMenu.Patches;
 
 namespace SignalSafetyMenu
 {
-    [BepInPlugin("com.vr.performance.toolkit", "VR Performance Toolkit", "1.0.4")]
+    [BepInPlugin("com.vr.performance.toolkit", "VR Performance Toolkit", "1.0.8")]
     public class Plugin : BaseUnityPlugin
     {
         public static Plugin Instance;
