@@ -910,24 +910,15 @@ namespace SignalSafetyMenu
 
             try
             {
-                var leftHand = GorillaTagger.Instance?.leftHandTransform;
-                if (leftHand == null) return;
-
-                Vector3 target = leftHand.position + leftHand.up * 0.12f + leftHand.forward * 0.02f;
-                float smoothFactor = 1f - Mathf.Pow(0.01f, Time.deltaTime);
-                _menuRoot.transform.position = Vector3.Lerp(_menuRoot.transform.position, target, smoothFactor);
-
+                var hand = GorillaTagger.Instance?.rightHandTransform;
                 var head = GorillaTagger.Instance?.headCollider?.transform;
-                if (head != null)
-                {
-                    Vector3 lookDir = head.position - _menuRoot.transform.position;
-                    if (lookDir.sqrMagnitude > 0.001f)
-                    {
-                        Quaternion targetRot = Quaternion.LookRotation(-lookDir.normalized, Vector3.up);
-                    float rotSmooth = 1f - Mathf.Pow(0.01f, Time.deltaTime);
-                    _menuRoot.transform.rotation = Quaternion.Slerp(_menuRoot.transform.rotation, targetRot, rotSmooth);
-                    }
-                }
+                if (hand == null || head == null) return;
+
+                _menuRoot.transform.position = hand.position + hand.up * 0.12f;
+
+                Vector3 toHead = head.position - _menuRoot.transform.position;
+                if (toHead.sqrMagnitude > 0.001f)
+                    _menuRoot.transform.rotation = Quaternion.LookRotation(toHead.normalized, Vector3.up);
             }
             catch { }
         }
@@ -938,10 +929,10 @@ namespace SignalSafetyMenu
 
             try
             {
-                var rightHand = GorillaTagger.Instance?.rightHandTransform;
-                if (rightHand == null) return;
+                var leftHand = GorillaTagger.Instance?.leftHandTransform;
+                if (leftHand == null) return;
 
-                _pointer.transform.position = rightHand.position + rightHand.forward * 0.06f + rightHand.up * 0.01f;
+                _pointer.transform.position = leftHand.position + leftHand.forward * 0.06f + leftHand.up * 0.01f;
             }
             catch { }
         }

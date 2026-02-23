@@ -428,7 +428,7 @@ namespace SignalSafetyMenu
                     string localUserId = NetworkSystem.Instance.LocalPlayer?.UserId;
                     if (localUserId == null || line.linePlayer?.UserId != localUserId) continue;
 
-                    float visRange = Threshold * MaxPingScale;
+                    float visRange = Threshold;
 
                     if (line.reportButton != null)
                     {
