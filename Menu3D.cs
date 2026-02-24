@@ -12,88 +12,99 @@ namespace SignalSafetyMenu
         public static bool IsOpen;
 
         private GameObject _menuRoot;
-        private GameObject _menuBG;
         private GameObject _pointer;
-        private GameObject _canvasObj;
 
-        private readonly List<GameObject> _buttons = new List<GameObject>();
-
-        private int _currentPage;
-        private int _currentTab;
+        private int _page;
         private int _pageCount;
+        private int _categoryOfPage;
 
-        private static readonly string[] TabNames = { "Main", "Advanced", "Identity", "Audio", "Extra" };
+        private bool _lastBtn;
+
+        private static TMP_FontAsset _font;
 
         private const int PageSize = 6;
-        private const float ButtonDist = 0.1f;
+        private const int BtnOffset = 2;
+        private const float BtnDist = 0.1f;
 
-        private const float RootX = 0.1f;
-        private const float RootY = 0.3f;
-        private const float RootZ = 0.3825f;
+        private static readonly string[] CatNames = { "Main", "Advanced", "Identity", "Audio", "Extra" };
 
-        private static readonly Vector3 TextRot = new Vector3(180f, 90f, 90f);
-        private static readonly Vector3 PointerOffset = new Vector3(0f, -0.1f, 0f);
-        private static readonly Vector3 PointerScale = new Vector3(0.01f, 0.01f, 0.01f);
-        private static readonly Vector3 BGLocalPos = new Vector3(0.5f, 0f, 0f);
-        private static readonly Vector3 BGLocalScale = new Vector3(0.1f, 1f, 1f);
-
-        private bool _lastSecondary;
-
-        private struct ButtonEntry
+        private struct Entry
         {
             public string Label;
             public Action OnPress;
             public Func<bool> IsOn;
             public bool IsToggle;
+            public int Category;
         }
 
         void Awake()
         {
             Instance = this;
             IsOpen = false;
+            FindFont();
+        }
+
+        static void FindFont()
+        {
+            if (_font != null) return;
+            try
+            {
+                var all = Resources.FindObjectsOfTypeAll<TMP_FontAsset>();
+                if (all != null)
+                {
+                    foreach (var f in all)
+                    {
+                        if (f != null)
+                        {
+                            _font = f;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         void Update()
         {
-            bool secondary = false;
+            bool btn = false;
             try
             {
-                secondary = ControllerInputPoller.instance != null &&
+                btn = ControllerInputPoller.instance != null &&
                     ControllerInputPoller.instance.leftControllerSecondaryButton;
             }
             catch { }
 
-            if (secondary && !_lastSecondary)
+            if (btn && !_lastBtn)
             {
-                if (IsOpen) CloseMenu();
-                else OpenMenu();
+                if (IsOpen) Close();
+                else Open();
             }
-            _lastSecondary = secondary;
+            _lastBtn = btn;
 
             if (IsOpen && _menuRoot != null)
-                RecenterMenu();
+                Recenter();
 
             ThemeManager.TickRainbow();
         }
 
-        private void OpenMenu()
+        private void Open()
         {
-            CreateMenu();
-            CreatePointer();
+            Build();
+            MakePointer();
             IsOpen = true;
         }
 
-        private void CloseMenu()
+        private void Close()
         {
             if (_menuRoot != null) Destroy(_menuRoot);
             if (_pointer != null) Destroy(_pointer);
             _menuRoot = null;
             _pointer = null;
-            _buttons.Clear();
             IsOpen = false;
         }
 
-        private void RecenterMenu()
+        private void Recenter()
         {
             Transform hand = null;
             try { hand = GorillaTagger.Instance.rightHandTransform; } catch { }
@@ -103,52 +114,132 @@ namespace SignalSafetyMenu
             try { s = GorillaLocomotion.GTPlayer.Instance.scale; } catch { }
 
             _menuRoot.transform.position = hand.position;
-
-            Vector3 euler = hand.rotation.eulerAngles;
-            euler += new Vector3(0f, 0f, 180f);
-            _menuRoot.transform.rotation = Quaternion.Euler(euler);
-
-            _menuRoot.transform.localScale = new Vector3(RootX, RootY, RootZ) * s;
+            Vector3 e = hand.rotation.eulerAngles;
+            e += new Vector3(0f, 0f, 180f);
+            _menuRoot.transform.rotation = Quaternion.Euler(e);
+            _menuRoot.transform.localScale = new Vector3(0.1f, 0.3f, 0.3825f) * s;
         }
 
-        private void CreateMenu()
+        private void Build()
         {
             if (_menuRoot != null) Destroy(_menuRoot);
-            _buttons.Clear();
-
-            _menuRoot = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            UnityEngine.Object.Destroy(_menuRoot.GetComponent<BoxCollider>());
-            UnityEngine.Object.Destroy(_menuRoot.GetComponent<Renderer>());
-            _menuRoot.transform.localScale = new Vector3(RootX, RootY, RootZ);
 
             var theme = ThemeManager.CurrentTheme;
+            var entries = AllEntries();
+            _pageCount = Mathf.Max(1, Mathf.CeilToInt((float)entries.Count / PageSize));
+            if (_page >= _pageCount) _page = 0;
 
-            _menuBG = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            UnityEngine.Object.Destroy(_menuBG.GetComponent<BoxCollider>());
-            _menuBG.transform.SetParent(_menuRoot.transform, false);
-            _menuBG.transform.localPosition = BGLocalPos;
-            _menuBG.transform.localRotation = Quaternion.identity;
-            _menuBG.transform.localScale = BGLocalScale;
-            SetColor(_menuBG, theme.PanelColor);
+            int start = _page * PageSize;
+            int count = Mathf.Min(PageSize, entries.Count - start);
+            _categoryOfPage = count > 0 ? entries[start].Category : 0;
 
-            _canvasObj = new GameObject("Canvas");
-            _canvasObj.transform.SetParent(_menuRoot.transform, false);
-            var canvas = _canvasObj.AddComponent<Canvas>();
+            _menuRoot = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(_menuRoot.GetComponent<BoxCollider>());
+            Destroy(_menuRoot.GetComponent<Renderer>());
+            _menuRoot.transform.localScale = new Vector3(0.1f, 0.3f, 0.3825f);
+
+            var bg = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(bg.GetComponent<BoxCollider>());
+            bg.transform.SetParent(_menuRoot.transform, false);
+            bg.transform.localPosition = new Vector3(0.5f, 0f, 0f);
+            bg.transform.localRotation = Quaternion.identity;
+            bg.transform.localScale = new Vector3(0.1f, 1f, 1f);
+            ApplyColor(bg, theme.PanelColor);
+
+            var canvasGO = new GameObject("Canvas");
+            canvasGO.transform.SetParent(_menuRoot.transform, false);
+            var canvas = canvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
-            var scaler = _canvasObj.AddComponent<CanvasScaler>();
+            var scaler = canvasGO.AddComponent<CanvasScaler>();
             scaler.dynamicPixelsPerUnit = 2500f;
-            _canvasObj.AddComponent<GraphicRaycaster>();
+            canvasGO.AddComponent<GraphicRaycaster>();
 
-            CreateTitle(theme);
-            CreateTabs(theme);
-            CreatePageButtons(theme);
+            string catLabel = CatNames[Mathf.Clamp(_categoryOfPage, 0, CatNames.Length - 1)];
+            string titleStr = "Signal / " + catLabel;
+            MakeText(canvasGO.transform, titleStr, new Vector3(0.06f, 0f, 0.165f), new Vector2(0.28f, 0.05f), theme.AccentColor);
 
-            var entries = GetPageEntries(_currentTab, _currentPage);
-            for (int i = 0; i < entries.Count; i++)
-                CreateButton(i, entries[i], theme);
+            string pageStr = "< " + (_page + 1) + "/" + _pageCount + " >";
+            MakeText(canvasGO.transform, pageStr, new Vector3(0.06f, 0f, 0.135f), new Vector2(0.28f, 0.02f), theme.TextDim);
+
+            MakeBtn(_menuRoot.transform, canvasGO.transform, 0, "<", theme.ButtonIdle, theme.TextPrimary, () =>
+            {
+                _page--;
+                if (_page < 0) _page = _pageCount - 1;
+                RebuildMenu();
+            });
+            MakeBtn(_menuRoot.transform, canvasGO.transform, 1, ">", theme.ButtonIdle, theme.TextPrimary, () =>
+            {
+                _page++;
+                if (_page >= _pageCount) _page = 0;
+                RebuildMenu();
+            });
+
+            for (int i = 0; i < count; i++)
+            {
+                var entry = entries[start + i];
+                int slot = i + BtnOffset;
+
+                bool active = entry.IsToggle && entry.IsOn != null && entry.IsOn();
+                Color btnCol = active ? theme.ButtonActive : theme.ButtonIdle;
+                Color txtCol = active ? theme.TextPrimary : theme.TextDim;
+
+                string label = entry.Label;
+                if (entry.IsToggle && entry.IsOn != null)
+                    label = (active ? "[ON] " : "[OFF] ") + label;
+
+                var capturedEntry = entry;
+                MakeBtn(_menuRoot.transform, canvasGO.transform, slot, label, btnCol, txtCol, () =>
+                {
+                    try { capturedEntry.OnPress?.Invoke(); } catch { }
+                    RebuildMenu();
+                });
+            }
         }
 
-        private void CreatePointer()
+        private void MakeBtn(Transform root, Transform canvasT, int slot, string label, Color btnColor, Color txtColor, Action onPress)
+        {
+            float offset = BtnDist * slot;
+
+            var btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            btn.GetComponent<BoxCollider>().isTrigger = true;
+            btn.transform.SetParent(root, false);
+            btn.transform.localRotation = Quaternion.identity;
+            btn.transform.localScale = new Vector3(0.09f, 1.3f, BtnDist * 0.8f);
+            btn.transform.localPosition = new Vector3(0.56f, 0f, 0.28f - offset);
+            ApplyColor(btn, btnColor);
+
+            var reactor = btn.AddComponent<TouchReactor>();
+            reactor.Init(onPress, false);
+            reactor.SetBaseColor(btnColor);
+
+            float textZ = 0.111f - offset / 2.6f;
+            MakeText(canvasT, label, new Vector3(0.064f, 0f, textZ), new Vector2(0.2f, 0.03f), txtColor);
+        }
+
+        private void MakeText(Transform parent, string text, Vector3 localPos, Vector2 size, Color color)
+        {
+            var go = new GameObject("T");
+            go.transform.SetParent(parent, false);
+
+            var tmp = go.AddComponent<TextMeshProUGUI>();
+            tmp.text = text;
+            tmp.fontSize = 1;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 0;
+            tmp.color = color;
+            tmp.richText = true;
+
+            if (_font != null)
+                tmp.font = _font;
+
+            var rt = go.GetComponent<RectTransform>();
+            rt.localPosition = localPos;
+            rt.sizeDelta = size;
+            rt.rotation = Quaternion.Euler(180f, 90f, 90f);
+        }
+
+        private void MakePointer()
         {
             if (_pointer != null) Destroy(_pointer);
 
@@ -156,419 +247,139 @@ namespace SignalSafetyMenu
             try { hand = GorillaTagger.Instance.leftHandTransform; } catch { }
 
             _pointer = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            UnityEngine.Object.Destroy(_pointer.GetComponent<Renderer>());
 
             if (hand != null)
                 _pointer.transform.SetParent(hand, false);
 
-            _pointer.transform.localPosition = PointerOffset;
-            _pointer.transform.localScale = PointerScale;
+            _pointer.transform.localPosition = new Vector3(0f, -0.1f, 0f);
+            _pointer.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
 
             var rb = _pointer.AddComponent<Rigidbody>();
             rb.isKinematic = true;
             rb.useGravity = false;
 
-            var sphere = _pointer.GetComponent<SphereCollider>();
-            sphere.isTrigger = true;
-            TouchReactor.Probe = sphere;
+            var sc = _pointer.GetComponent<SphereCollider>();
+            sc.isTrigger = true;
+            TouchReactor.Probe = sc;
 
-            var theme = ThemeManager.CurrentTheme;
-
-            GameObject vis = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            UnityEngine.Object.Destroy(vis.GetComponent<SphereCollider>());
+            var vis = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Destroy(vis.GetComponent<SphereCollider>());
             vis.transform.SetParent(_pointer.transform, false);
             vis.transform.localPosition = Vector3.zero;
-            vis.transform.localScale = Vector3.one * 1.2f;
-            SetColor(vis, theme.PointerColor);
-        }
-
-        private void CreateTitle(ThemeManager.Swatch theme)
-        {
-            var go = new GameObject("Title");
-            go.transform.SetParent(_canvasObj.transform, false);
-
-            var tmp = go.AddComponent<TextMeshProUGUI>();
-            tmp.text = "Signal Safety";
-            tmp.fontSize = 1;
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.enableAutoSizing = true;
-            tmp.fontSizeMin = 0;
-            tmp.color = theme.AccentColor;
-            tmp.richText = true;
-
-            var rt = go.GetComponent<RectTransform>();
-            rt.localPosition = new Vector3(0.06f, 0f, 0.165f);
-            rt.sizeDelta = new Vector2(0.28f, 0.05f);
-            rt.rotation = Quaternion.Euler(TextRot);
-        }
-
-        private void CreateTabs(ThemeManager.Swatch theme)
-        {
-            float tabHeight = 0.028f;
-            float tabWidth = 0.28f / TabNames.Length;
-
-            for (int i = 0; i < TabNames.Length; i++)
-            {
-                int tabIndex = i;
-                float yOff = -0.5f + tabWidth * 0.5f + tabWidth * i;
-
-                var btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                btn.layer = 2;
-                btn.GetComponent<BoxCollider>().isTrigger = true;
-                btn.transform.SetParent(_menuRoot.transform, false);
-                btn.transform.localRotation = Quaternion.identity;
-                btn.transform.localScale = new Vector3(0.09f, 0.18f, tabHeight * 2.5f);
-                btn.transform.localPosition = new Vector3(0.56f, yOff, 0.37f);
-
-                bool selected = tabIndex == _currentTab;
-                SetColor(btn, selected ? theme.TabSelected : theme.TabIdle);
-
-                var reactor = btn.AddComponent<TouchReactor>();
-                reactor.Init(() =>
-                {
-                    if (_currentTab != tabIndex)
-                    {
-                        _currentTab = tabIndex;
-                        _currentPage = 0;
-                        RebuildMenu();
-                    }
-                }, false);
-                reactor.SetBaseColor(selected ? theme.TabSelected : theme.TabIdle);
-
-                _buttons.Add(btn);
-
-                var textGo = new GameObject("TabText");
-                textGo.transform.SetParent(_canvasObj.transform, false);
-                var tmp = textGo.AddComponent<TextMeshProUGUI>();
-                tmp.text = TabNames[tabIndex];
-                tmp.fontSize = 1;
-                tmp.alignment = TextAlignmentOptions.Center;
-                tmp.enableAutoSizing = true;
-                tmp.fontSizeMin = 0;
-                tmp.color = selected ? theme.TextPrimary : theme.TextDim;
-                tmp.richText = true;
-
-                var rt = textGo.GetComponent<RectTransform>();
-                float textY = -0.5f * 0.28f + tabWidth * 0.5f * 0.28f / tabWidth + 0.28f / TabNames.Length * i;
-                rt.localPosition = new Vector3(0.06f, yOff * 0.28f / 1f, 0.135f);
-                rt.sizeDelta = new Vector2(tabWidth * 0.9f, 0.03f);
-                rt.rotation = Quaternion.Euler(TextRot);
-            }
-        }
-
-        private void CreatePageButtons(ThemeManager.Swatch theme)
-        {
-            var allEntries = GetAllEntries(_currentTab);
-            _pageCount = Mathf.Max(1, Mathf.CeilToInt((float)allEntries.Count / PageSize));
-            if (_currentPage >= _pageCount) _currentPage = 0;
-
-            float offset0 = ButtonDist * 0;
-            float offset1 = ButtonDist * 1;
-
-            var prevBtn = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            prevBtn.layer = 2;
-            prevBtn.GetComponent<BoxCollider>().isTrigger = true;
-            prevBtn.transform.SetParent(_menuRoot.transform, false);
-            prevBtn.transform.localRotation = Quaternion.identity;
-            prevBtn.transform.localScale = new Vector3(0.09f, 1.3f, ButtonDist * 0.8f);
-            prevBtn.transform.localPosition = new Vector3(0.56f, 0f, 0.28f - offset0);
-            SetColor(prevBtn, theme.ButtonIdle);
-
-            var prevReactor = prevBtn.AddComponent<TouchReactor>();
-            prevReactor.Init(() =>
-            {
-                _currentPage--;
-                if (_currentPage < 0) _currentPage = _pageCount - 1;
-                RebuildMenu();
-            }, false);
-            prevReactor.SetBaseColor(theme.ButtonIdle);
-            _buttons.Add(prevBtn);
-
-            var prevText = new GameObject("PrevText");
-            prevText.transform.SetParent(_canvasObj.transform, false);
-            var prevTmp = prevText.AddComponent<TextMeshProUGUI>();
-            prevTmp.text = $"< {_currentPage + 1}/{_pageCount}";
-            prevTmp.fontSize = 1;
-            prevTmp.alignment = TextAlignmentOptions.Center;
-            prevTmp.enableAutoSizing = true;
-            prevTmp.fontSizeMin = 0;
-            prevTmp.color = theme.TextPrimary;
-            var prevRt = prevText.GetComponent<RectTransform>();
-            prevRt.sizeDelta = new Vector2(0.2f, 0.03f);
-            prevRt.localPosition = new Vector3(0.064f, 0f, 0.111f - offset0 / 2.6f);
-            prevRt.rotation = Quaternion.Euler(TextRot);
-
-            var nextBtn = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            nextBtn.layer = 2;
-            nextBtn.GetComponent<BoxCollider>().isTrigger = true;
-            nextBtn.transform.SetParent(_menuRoot.transform, false);
-            nextBtn.transform.localRotation = Quaternion.identity;
-            nextBtn.transform.localScale = new Vector3(0.09f, 1.3f, ButtonDist * 0.8f);
-            nextBtn.transform.localPosition = new Vector3(0.56f, 0f, 0.28f - offset1);
-            SetColor(nextBtn, theme.ButtonIdle);
-
-            var nextReactor = nextBtn.AddComponent<TouchReactor>();
-            nextReactor.Init(() =>
-            {
-                _currentPage++;
-                if (_currentPage >= _pageCount) _currentPage = 0;
-                RebuildMenu();
-            }, false);
-            nextReactor.SetBaseColor(theme.ButtonIdle);
-            _buttons.Add(nextBtn);
-
-            var nextText = new GameObject("NextText");
-            nextText.transform.SetParent(_canvasObj.transform, false);
-            var nextTmp = nextText.AddComponent<TextMeshProUGUI>();
-            nextTmp.text = $"{_currentPage + 1}/{_pageCount} >";
-            nextTmp.fontSize = 1;
-            nextTmp.alignment = TextAlignmentOptions.Center;
-            nextTmp.enableAutoSizing = true;
-            nextTmp.fontSizeMin = 0;
-            nextTmp.color = theme.TextPrimary;
-            var nextRt = nextText.GetComponent<RectTransform>();
-            nextRt.sizeDelta = new Vector2(0.2f, 0.03f);
-            nextRt.localPosition = new Vector3(0.064f, 0f, 0.111f - offset1 / 2.6f);
-            nextRt.rotation = Quaternion.Euler(TextRot);
-        }
-
-        private void CreateButton(int index, ButtonEntry entry, ThemeManager.Swatch theme)
-        {
-            int btnOffset = 2;
-            float offset = ButtonDist * (index + btnOffset);
-
-            bool isActive = entry.IsToggle && entry.IsOn != null && entry.IsOn();
-            Color btnColor = isActive ? theme.ButtonActive : theme.ButtonIdle;
-
-            var btn = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            btn.layer = 2;
-            btn.GetComponent<BoxCollider>().isTrigger = true;
-            btn.transform.SetParent(_menuRoot.transform, false);
-            btn.transform.localRotation = Quaternion.identity;
-            btn.transform.localScale = new Vector3(0.09f, 1.3f, ButtonDist * 0.8f);
-            btn.transform.localPosition = new Vector3(0.56f, 0f, 0.28f - offset);
-            SetColor(btn, btnColor);
-
-            var reactor = btn.AddComponent<TouchReactor>();
-            reactor.Init(() =>
-            {
-                try { entry.OnPress?.Invoke(); } catch { }
-                RebuildMenu();
-            }, entry.IsToggle);
-            reactor.SetBaseColor(btnColor);
-            _buttons.Add(btn);
-
-            string label = entry.Label;
-            if (entry.IsToggle && entry.IsOn != null)
-                label = (entry.IsOn() ? "[ON] " : "[OFF] ") + label;
-
-            var textGo = new GameObject("BtnText");
-            textGo.transform.SetParent(_canvasObj.transform, false);
-            var tmp = textGo.AddComponent<TextMeshProUGUI>();
-            tmp.text = label;
-            tmp.fontSize = 1;
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.enableAutoSizing = true;
-            tmp.fontSizeMin = 0;
-            tmp.color = isActive ? theme.TextPrimary : theme.TextDim;
-            tmp.richText = true;
-
-            var rt = textGo.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(0.2f, 0.03f);
-            rt.localPosition = new Vector3(0.064f, 0f, 0.111f - offset / 2.6f);
-            rt.rotation = Quaternion.Euler(TextRot);
+            vis.transform.localScale = Vector3.one;
+            ApplyColor(vis, ThemeManager.CurrentTheme.PointerColor);
         }
 
         public void RebuildMenu()
         {
             if (!IsOpen) return;
-            CreateMenu();
+            Build();
         }
 
-        private List<ButtonEntry> GetPageEntries(int tab, int page)
+        private static void ApplyColor(GameObject obj, Color c)
         {
-            var all = GetAllEntries(tab);
-            int start = page * PageSize;
-            int count = Mathf.Min(PageSize, all.Count - start);
-            if (start >= all.Count) return new List<ButtonEntry>();
-            return all.GetRange(start, count);
-        }
+            var r = obj.GetComponent<Renderer>();
+            if (r == null) return;
 
-        private List<ButtonEntry> GetAllEntries(int tab)
-        {
-            switch (tab)
+            Shader sh = Shader.Find("Universal Render Pipeline/Unlit");
+            if (sh == null) sh = Shader.Find("Unlit/Color");
+            if (sh == null) sh = Shader.Find("Standard");
+
+            if (sh != null)
             {
-                case 0: return BuildMainEntries();
-                case 1: return BuildAdvancedEntries();
-                case 2: return BuildIdentityEntries();
-                case 3: return BuildAudioEntries();
-                case 4: return BuildExtraEntries();
-                default: return new List<ButtonEntry>();
+                r.material = new Material(sh);
+                r.material.color = c;
+            }
+            else
+            {
+                r.material.color = c;
             }
         }
 
-        private List<ButtonEntry> BuildMainEntries()
+        private List<Entry> AllEntries()
         {
-            var list = new List<ButtonEntry>();
+            var list = new List<Entry>();
 
-            list.Add(Toggle("Anti-Report", () => SafetyConfig.AntiReportEnabled, v => { SafetyConfig.AntiReportEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "safety_disabled", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Block Telemetry", () => SafetyConfig.TelemetryBlockEnabled, v => { SafetyConfig.TelemetryBlockEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Block PlayFab Reports", () => SafetyConfig.PlayFabBlockEnabled, v => { SafetyConfig.PlayFabBlockEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
+            list.Add(Tog("Anti-Report", 0, () => SafetyConfig.AntiReportEnabled, v => { SafetyConfig.AntiReportEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Block Telemetry", 0, () => SafetyConfig.TelemetryBlockEnabled, v => { SafetyConfig.TelemetryBlockEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Block PlayFab Reports", 0, () => SafetyConfig.PlayFabBlockEnabled, v => { SafetyConfig.PlayFabBlockEnabled = v; SafetyConfig.Save(); }));
+            list.Add(new Entry { Label = "Theme: " + ThemeManager.CurrentTheme.Name, OnPress = () => ThemeManager.StepPalette(), Category = 0 });
 
-            list.Add(new ButtonEntry
+            list.Add(Tog("Device Spoofing", 1, () => SafetyConfig.DeviceSpoofEnabled, v => { SafetyConfig.DeviceSpoofEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Network Event Block", 1, () => SafetyConfig.NetworkEventBlockEnabled, v => { SafetyConfig.NetworkEventBlockEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("RPC Limit Bypass", 1, () => SafetyConfig.RPCLimitBypassEnabled, v => { SafetyConfig.RPCLimitBypassEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Grace Period Bypass", 1, () => SafetyConfig.GraceBypassEnabled, v => { SafetyConfig.GraceBypassEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("KID Bypass", 1, () => SafetyConfig.KIDBypassEnabled, v => { SafetyConfig.KIDBypassEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Name Ban Bypass", 1, () => SafetyConfig.NameBanBypassEnabled, v => { SafetyConfig.NameBanBypassEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Core Property Filter", 1, () => SafetyConfig.CoreProtectionEnabled, v => { SafetyConfig.CoreProtectionEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Error Logging", 1, () => SafetyConfig.ErrorLoggingEnabled, v => { SafetyConfig.ErrorLoggingEnabled = v; SafetyConfig.Save(); }));
+            list.Add(new Entry { Label = "Reset All Defaults", OnPress = () => { SafetyConfig.ResetToDefaults(); }, Category = 1 });
+
+            list.Add(Tog("Identity Change", 2, () => SafetyConfig.IdentityChangeEnabled, v => { SafetyConfig.IdentityChangeEnabled = v; SafetyConfig.Save(); if (v) IdentityChanger.ApplyRandomName(); }));
+            list.Add(new Entry { Label = "Random Name", OnPress = () => { SafetyConfig.CustomName = ""; IdentityChanger.ApplyRandomName(); }, Category = 2 });
+            list.Add(Tog("Smart Mode", 2, () => AntiReport.SmartMode, v => { AntiReport.SmartMode = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Detection Zones", 2, () => AntiReport.VisualizerEnabled, v => { AntiReport.VisualizerEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Detect Mute Btn", 2, () => AntiReport.AntiMute, v => { AntiReport.AntiMute = v; SafetyConfig.Save(); }));
+            list.Add(new Entry { Label = "Range: " + AntiReport.RangeName, OnPress = () => { AntiReport.CycleRange(); SafetyConfig.Save(); }, Category = 2 });
             {
-                Label = $"Theme: {ThemeManager.CurrentTheme.Name}",
-                OnPress = () => { ThemeManager.StepPalette(); },
-                IsOn = null,
-                IsToggle = false,
-            });
+                string[] mn = { "Disconnect", "Reconnect", "Notify" };
+                string m = mn[Mathf.Clamp(SafetyConfig.AntiReportMode, 0, mn.Length - 1)];
+                list.Add(new Entry { Label = "Mode: " + m, OnPress = () => { SafetyConfig.AntiReportMode = (SafetyConfig.AntiReportMode + 1) % 3; SafetyConfig.Save(); }, Category = 2 });
+            }
 
-            return list;
-        }
+            list.Add(Tog("All Audio", 3, () => SafetyConfig.AudioEnabled, v => { SafetyConfig.AudioEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Protection Sounds", 3, () => SafetyConfig.PlayProtectionAudio, v => { SafetyConfig.PlayProtectionAudio = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Warning Sounds", 3, () => SafetyConfig.PlayWarningAudio, v => { SafetyConfig.PlayWarningAudio = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Ban Detect Sounds", 3, () => SafetyConfig.PlayBanAudio, v => { SafetyConfig.PlayBanAudio = v; SafetyConfig.Save(); }));
 
-        private List<ButtonEntry> BuildAdvancedEntries()
-        {
-            var list = new List<ButtonEntry>();
-
-            list.Add(Toggle("Device Spoofing", () => SafetyConfig.DeviceSpoofEnabled, v => { SafetyConfig.DeviceSpoofEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Network Event Block", () => SafetyConfig.NetworkEventBlockEnabled, v => { SafetyConfig.NetworkEventBlockEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("RPC Limit Bypass", () => SafetyConfig.RPCLimitBypassEnabled, v => { SafetyConfig.RPCLimitBypassEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Grace Period Bypass", () => SafetyConfig.GraceBypassEnabled, v => { SafetyConfig.GraceBypassEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "safety_disabled", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("KID Bypass", () => SafetyConfig.KIDBypassEnabled, v => { SafetyConfig.KIDBypassEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Name Ban Bypass", () => SafetyConfig.NameBanBypassEnabled, v => { SafetyConfig.NameBanBypassEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Core Property Filter", () => SafetyConfig.CoreProtectionEnabled, v => { SafetyConfig.CoreProtectionEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "safety_disabled", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Error Logging", () => SafetyConfig.ErrorLoggingEnabled, v => { SafetyConfig.ErrorLoggingEnabled = v; SafetyConfig.Save(); }));
-
-            list.Add(new ButtonEntry
+            list.Add(Tog("Moderator Detect", 4, () => SafetyConfig.ModeratorDetectorEnabled, v => { SafetyConfig.ModeratorDetectorEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Anti-Creator", 4, () => SafetyConfig.AntiContentCreatorEnabled, v => { SafetyConfig.AntiContentCreatorEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Cosmetic Notifs", 4, () => SafetyConfig.CosmeticNotificationsEnabled, v => { SafetyConfig.CosmeticNotificationsEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Automod Bypass", 4, () => SafetyConfig.AutomodBypassEnabled, v => { SafetyConfig.AutomodBypassEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Anti-Predictions", 4, () => SafetyConfig.AntiPredictionsEnabled, v => { SafetyConfig.AntiPredictionsEnabled = v; SafetyConfig.Save(); if (!v) Patches.AntiPredictions.Reset(); }));
+            list.Add(Tog("Anti-Lurker", 4, () => SafetyConfig.AntiLurkerEnabled, v => { SafetyConfig.AntiLurkerEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Fake Oculus Menu", 4, () => SafetyConfig.FakeOculusMenuEnabled, v => { SafetyConfig.FakeOculusMenuEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Fake Broken Ctrl", 4, () => SafetyConfig.FakeBrokenControllerEnabled, v => { SafetyConfig.FakeBrokenControllerEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Fake Report Menu", 4, () => SafetyConfig.FakeReportMenuEnabled, v => { SafetyConfig.FakeReportMenuEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Fake Valve Track", 4, () => SafetyConfig.FakeValveTrackingEnabled, v => { SafetyConfig.FakeValveTrackingEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Anti-Crash", 4, () => SafetyConfig.AntiCrashEnabled, v => { SafetyConfig.AntiCrashEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Anti-Kick", 4, () => SafetyConfig.AntiKickEnabled, v =>
             {
-                Label = "Reset All to Defaults",
-                OnPress = () => { SafetyConfig.ResetToDefaults(); AudioManager.Play("done", AudioManager.AudioCategory.Toggle); },
-                IsOn = null,
-                IsToggle = false,
-            });
-
-            return list;
-        }
-
-        private List<ButtonEntry> BuildIdentityEntries()
-        {
-            var list = new List<ButtonEntry>();
-
-            list.Add(Toggle("Identity Change", () => SafetyConfig.IdentityChangeEnabled, v =>
-            {
-                SafetyConfig.IdentityChangeEnabled = v;
-                SafetyConfig.Save();
-                if (v) { AudioManager.Play("done", AudioManager.AudioCategory.Toggle); IdentityChanger.ApplyRandomName(); }
-            }));
-
-            list.Add(new ButtonEntry
-            {
-                Label = "Generate Random Name",
-                OnPress = () => { SafetyConfig.CustomName = ""; IdentityChanger.ApplyRandomName(); },
-                IsOn = null,
-                IsToggle = false,
-            });
-
-            list.Add(Toggle("Smart Mode", () => AntiReport.SmartMode, v => { AntiReport.SmartMode = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Show Detection Zones", () => AntiReport.VisualizerEnabled, v => { AntiReport.VisualizerEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Detect Mute Button", () => AntiReport.AntiMute, v => { AntiReport.AntiMute = v; SafetyConfig.Save(); }));
-
-            list.Add(new ButtonEntry
-            {
-                Label = $"Range: {AntiReport.RangeName}",
-                OnPress = () => { AntiReport.CycleRange(); SafetyConfig.Save(); },
-                IsOn = null,
-                IsToggle = false,
-            });
-
-            string[] modeNames = { "Disconnect", "Reconnect", "Notify Only" };
-            string mode = modeNames[Mathf.Clamp(SafetyConfig.AntiReportMode, 0, modeNames.Length - 1)];
-            list.Add(new ButtonEntry
-            {
-                Label = $"Mode: {mode}",
-                OnPress = () => { SafetyConfig.AntiReportMode = (SafetyConfig.AntiReportMode + 1) % 3; SafetyConfig.Save(); },
-                IsOn = null,
-                IsToggle = false,
-            });
-
-            return list;
-        }
-
-        private List<ButtonEntry> BuildAudioEntries()
-        {
-            var list = new List<ButtonEntry>();
-
-            list.Add(Toggle("Enable All Audio", () => SafetyConfig.AudioEnabled, v => { SafetyConfig.AudioEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Protection Sounds", () => SafetyConfig.PlayProtectionAudio, v => { SafetyConfig.PlayProtectionAudio = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Warning Sounds", () => SafetyConfig.PlayWarningAudio, v => { SafetyConfig.PlayWarningAudio = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Ban Detection Sounds", () => SafetyConfig.PlayBanAudio, v => { SafetyConfig.PlayBanAudio = v; SafetyConfig.Save(); }));
-
-            return list;
-        }
-
-        private List<ButtonEntry> BuildExtraEntries()
-        {
-            var list = new List<ButtonEntry>();
-
-            list.Add(Toggle("Moderator Detection", () => SafetyConfig.ModeratorDetectorEnabled, v => { SafetyConfig.ModeratorDetectorEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Anti-Content Creator", () => SafetyConfig.AntiContentCreatorEnabled, v => { SafetyConfig.AntiContentCreatorEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "safety_disabled", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Cosmetic Notifications", () => SafetyConfig.CosmeticNotificationsEnabled, v => { SafetyConfig.CosmeticNotificationsEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Automod Bypass", () => SafetyConfig.AutomodBypassEnabled, v => { SafetyConfig.AutomodBypassEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "safety_disabled", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Anti-Predictions", () => SafetyConfig.AntiPredictionsEnabled, v => { SafetyConfig.AntiPredictionsEnabled = v; SafetyConfig.Save(); if (!v) Patches.AntiPredictions.Reset(); }));
-            list.Add(Toggle("Anti-Lurker", () => SafetyConfig.AntiLurkerEnabled, v => { SafetyConfig.AntiLurkerEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Fake Oculus Menu", () => SafetyConfig.FakeOculusMenuEnabled, v => { SafetyConfig.FakeOculusMenuEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Fake Broken Controller", () => SafetyConfig.FakeBrokenControllerEnabled, v => { SafetyConfig.FakeBrokenControllerEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Fake Report Menu", () => SafetyConfig.FakeReportMenuEnabled, v => { SafetyConfig.FakeReportMenuEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Fake Valve Tracking", () => SafetyConfig.FakeValveTrackingEnabled, v => { SafetyConfig.FakeValveTrackingEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Anti-Crash", () => SafetyConfig.AntiCrashEnabled, v => { SafetyConfig.AntiCrashEnabled = v; SafetyConfig.Save(); AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle); }));
-            list.Add(Toggle("Anti-Kick", () => SafetyConfig.AntiKickEnabled, v =>
-            {
-                SafetyConfig.AntiKickEnabled = v;
-                SafetyConfig.Save();
+                SafetyConfig.AntiKickEnabled = v; SafetyConfig.Save();
                 if (v) Patches.AntiKickHelper.Enable(); else Patches.AntiKickHelper.Disable();
-                AudioManager.Play(v ? "safety_enabled" : "warning", AudioManager.AudioCategory.Toggle);
             }));
-            list.Add(Toggle("Show AC Reports", () => SafetyConfig.ShowACReportsEnabled, v => { SafetyConfig.ShowACReportsEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Auto GC", () => SafetyConfig.AutoGCEnabled, v => { SafetyConfig.AutoGCEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Spoof Support Page", () => SafetyConfig.SupportPageSpoofEnabled, v => { SafetyConfig.SupportPageSpoofEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Ranked Spoof", () => SafetyConfig.RankedSpoofEnabled, v => { SafetyConfig.RankedSpoofEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Change Name on DC", () => SafetyConfig.ChangeIdentityOnDisconnect, v => { SafetyConfig.ChangeIdentityOnDisconnect = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Randomize Color", () => SafetyConfig.ColorChangeEnabled, v => { SafetyConfig.ColorChangeEnabled = v; SafetyConfig.Save(); }));
-
-            list.Add(new ButtonEntry { Label = "Flush RPCs", OnPress = () => { Patches.RPCFlusher.Flush(); AudioManager.Play("done", AudioManager.AudioCategory.Toggle); }, IsOn = null, IsToggle = false });
-            list.Add(new ButtonEntry { Label = "Fix Lobby", OnPress = () => { Patches.LobbyFixer.Fix(); AudioManager.Play("done", AudioManager.AudioCategory.Toggle); }, IsOn = null, IsToggle = false });
-            list.Add(new ButtonEntry { Label = "Rejoin Lobby", OnPress = () => { Patches.LobbyFixer.Rejoin(); AudioManager.Play("done", AudioManager.AudioCategory.Toggle); }, IsOn = null, IsToggle = false });
-            list.Add(new ButtonEntry { Label = "RESTART", OnPress = () => { Patches.GameRestarter.Restart(); }, IsOn = null, IsToggle = false });
-
-            list.Add(Toggle("FPS Spoof", () => SafetyConfig.FPSSpoofEnabled, v => { SafetyConfig.FPSSpoofEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("TOS/Age Bypass", () => SafetyConfig.TOSBypassEnabled, v => { SafetyConfig.TOSBypassEnabled = v; SafetyConfig.Save(); }));
-            list.Add(Toggle("Anti-Name Ban", () => SafetyConfig.AntiNameBanEnabled, v => { SafetyConfig.AntiNameBanEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Show AC Reports", 4, () => SafetyConfig.ShowACReportsEnabled, v => { SafetyConfig.ShowACReportsEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Auto GC", 4, () => SafetyConfig.AutoGCEnabled, v => { SafetyConfig.AutoGCEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Spoof Support", 4, () => SafetyConfig.SupportPageSpoofEnabled, v => { SafetyConfig.SupportPageSpoofEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Ranked Spoof", 4, () => SafetyConfig.RankedSpoofEnabled, v => { SafetyConfig.RankedSpoofEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Name on DC", 4, () => SafetyConfig.ChangeIdentityOnDisconnect, v => { SafetyConfig.ChangeIdentityOnDisconnect = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Random Color", 4, () => SafetyConfig.ColorChangeEnabled, v => { SafetyConfig.ColorChangeEnabled = v; SafetyConfig.Save(); }));
+            list.Add(new Entry { Label = "Flush RPCs", OnPress = () => Patches.RPCFlusher.Flush(), Category = 4 });
+            list.Add(new Entry { Label = "Fix Lobby", OnPress = () => Patches.LobbyFixer.Fix(), Category = 4 });
+            list.Add(new Entry { Label = "Rejoin Lobby", OnPress = () => Patches.LobbyFixer.Rejoin(), Category = 4 });
+            list.Add(new Entry { Label = "RESTART", OnPress = () => Patches.GameRestarter.Restart(), Category = 4 });
+            list.Add(Tog("FPS Spoof", 4, () => SafetyConfig.FPSSpoofEnabled, v => { SafetyConfig.FPSSpoofEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("TOS/Age Bypass", 4, () => SafetyConfig.TOSBypassEnabled, v => { SafetyConfig.TOSBypassEnabled = v; SafetyConfig.Save(); }));
+            list.Add(Tog("Anti-Name Ban", 4, () => SafetyConfig.AntiNameBanEnabled, v => { SafetyConfig.AntiNameBanEnabled = v; SafetyConfig.Save(); }));
 
             return list;
         }
 
-        private static ButtonEntry Toggle(string label, Func<bool> getter, Action<bool> setter)
+        private static Entry Tog(string label, int cat, Func<bool> get, Action<bool> set)
         {
-            return new ButtonEntry
+            return new Entry
             {
                 Label = label,
-                OnPress = () => setter(!getter()),
-                IsOn = getter,
+                OnPress = () => set(!get()),
+                IsOn = get,
                 IsToggle = true,
+                Category = cat,
             };
-        }
-
-        private static void SetColor(GameObject obj, Color c)
-        {
-            var rend = obj.GetComponent<Renderer>();
-            if (rend == null) return;
-            rend.material = new Material(Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Standard"));
-            rend.material.color = c;
         }
 
         void OnDestroy()
         {
-            CloseMenu();
+            Close();
             if (Instance == this) Instance = null;
         }
     }
