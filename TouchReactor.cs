@@ -17,7 +17,7 @@ namespace SignalSafetyMenu
 
         private static readonly Color GazeHighlight = new Color(0.18f, 0.3f, 0.45f, 0.95f);
         private static readonly Color TapFlash = new Color(0.3f, 0.85f, 1f, 1f);
-        private const float TapGate = 0.2f;
+        private const float TapGate = 0.5f;
         private const float GazeFadeRate = 10f;
         private const float ColorEpsilon = 0.005f;
 

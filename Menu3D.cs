@@ -190,33 +190,21 @@ namespace SignalSafetyMenu
             var go = new GameObject("Lbl");
             go.transform.SetParent(parent, false);
             go.transform.localPosition = pos;
-            go.transform.localRotation = Quaternion.Euler(180f, 90f, 90f);
+            go.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
 
-            if (_font != null)
+            var t = go.AddComponent<TextMesh>();
+            t.text = text;
+            t.characterSize = 0.1f;
+            t.fontSize = 40;
+            t.color = color;
+            t.alignment = TextAlignment.Center;
+            t.anchor = TextAnchor.MiddleCenter;
+
+            var renderer = go.GetComponent<MeshRenderer>();
+            if (renderer != null)
             {
-                var t = go.AddComponent<TextMeshPro>();
-                t.font = _font;
-                t.text = text;
-                t.fontSize = 3;
-                t.alignment = TextAlignmentOptions.Center;
-                t.enableAutoSizing = true;
-                t.fontSizeMin = 0;
-                t.fontSizeMax = 5;
-                t.color = color;
-                t.richText = true;
-                t.overflowMode = TextOverflowModes.Ellipsis;
-                t.sortingOrder = 10000;
-                t.rectTransform.sizeDelta = size;
-            }
-            else
-            {
-                var t = go.AddComponent<TextMesh>();
-                t.text = text;
-                t.characterSize = 0.01f;
-                t.fontSize = 60;
-                t.color = color;
-                t.alignment = TextAlignment.Center;
-                t.anchor = TextAnchor.MiddleCenter;
+                renderer.sortingOrder = 10000;
+                renderer.material = new Material(Shader.Find("GUI/Text Shader"));
             }
         }
 

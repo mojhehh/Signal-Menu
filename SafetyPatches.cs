@@ -2522,12 +2522,19 @@ namespace SignalSafetyMenu.Patches
             try
             {
                 Plugin.Instance?.Log("[Restart] Restarting Gorilla Tag...");
-                System.Diagnostics.Process.Start("steam://rungameid/1533390");
-                Application.Quit();
+                UnityEngine.SceneManagement.SceneManager.LoadScene(0);
             }
             catch (Exception ex)
             {
-                Plugin.Instance?.Log($"[Restart] Failed: {ex.Message}");
+                try
+                {
+                    Plugin.Instance?.Log($"[Restart] SceneManager.LoadScene failed, trying Application.Quit: {ex.Message}");
+                    Application.Quit();
+                }
+                catch (Exception ex2)
+                {
+                    Plugin.Instance?.Log($"[Restart] Failed: {ex2.Message}");
+                }
             }
         }
     }
