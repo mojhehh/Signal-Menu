@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 
 namespace SignalSafetyMenu
@@ -12,6 +13,7 @@ namespace SignalSafetyMenu
 
         private GameObject _root;
         private GameObject _pointer;
+        private GameObject _canvasObj;
 
         private int _page;
         private int _pageCount;
@@ -123,6 +125,14 @@ namespace SignalSafetyMenu
             UnityEngine.Object.Destroy(_root.GetComponent<BoxCollider>());
             UnityEngine.Object.Destroy(_root.GetComponent<Renderer>());
 
+            _canvasObj = new GameObject("Canvas");
+            _canvasObj.transform.SetParent(_root.transform, false);
+            var canvas = _canvasObj.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            var scaler = _canvasObj.AddComponent<CanvasScaler>();
+            scaler.dynamicPixelsPerUnit = 2500f;
+            _canvasObj.AddComponent<GraphicRaycaster>();
+
             var bg = GameObject.CreatePrimitive(PrimitiveType.Cube);
             UnityEngine.Object.Destroy(bg.GetComponent<BoxCollider>());
             bg.transform.SetParent(_root.transform, false);
@@ -132,7 +142,7 @@ namespace SignalSafetyMenu
 
             string title = "Signal / " + CAT[Mathf.Clamp(_catOfPage, 0, 4)] + "  (" + (_page + 1) + "/" + _pageCount + ")";
             float titleZ = 0.28f + BD * 1.5f;
-            MakeLabel(_root.transform, title, new Vector3(0.62f, 0f, titleZ), new Vector2(0.28f, 0.04f), th.AccentColor);
+            MakeLabel(title, new Vector3(0.06f, 0f, 0.165f + (titleZ - 0.43f) / 2.6f), new Vector2(0.28f, 0.05f), th.AccentColor);
 
             MakeButton(_root.transform, 0, "< Prev", th.ButtonIdle, th.TextPrimary, () =>
             {
@@ -182,30 +192,31 @@ namespace SignalSafetyMenu
             tr.Init(onPress, false);
             tr.SetBaseColor(btnCol);
 
-            MakeLabel(root, label, new Vector3(0.62f, 0f, z), new Vector2(0.25f, BD * 0.7f), txtCol);
+            MakeLabel(label, new Vector3(0.064f, 0f, 0.111f - (BD * slot) / 2.6f), new Vector2(0.2f, 0.03f), txtCol);
         }
 
-        private void MakeLabel(Transform parent, string text, Vector3 pos, Vector2 size, Color color)
+        private void MakeLabel(string text, Vector3 localPos, Vector2 size, Color color)
         {
             var go = new GameObject("Lbl");
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = pos;
-            go.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+            go.transform.SetParent(_canvasObj.transform, false);
 
-            var t = go.AddComponent<TextMesh>();
+            var t = go.AddComponent<TextMeshPro>();
+            if (_font != null) t.font = _font;
             t.text = text;
-            t.characterSize = 0.1f;
-            t.fontSize = 40;
+            t.fontSize = 1;
+            t.richText = true;
+            t.alignment = TextAlignmentOptions.Center;
+            t.enableAutoSizing = true;
+            t.fontSizeMin = 0;
+            t.fontSizeMax = 1;
             t.color = color;
-            t.alignment = TextAlignment.Center;
-            t.anchor = TextAnchor.MiddleCenter;
+            t.overflowMode = TextOverflowModes.Ellipsis;
 
-            var renderer = go.GetComponent<MeshRenderer>();
-            if (renderer != null)
-            {
-                renderer.sortingOrder = 10000;
-                renderer.material = new Material(Shader.Find("GUI/Text Shader"));
-            }
+            var rt = t.GetComponent<RectTransform>();
+            rt.localPosition = Vector3.zero;
+            rt.sizeDelta = size;
+            rt.localPosition = localPos;
+            rt.rotation = Quaternion.Euler(180f, 90f, 90f);
         }
 
         private void BuildPointer()

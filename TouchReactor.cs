@@ -9,15 +9,16 @@ namespace SignalSafetyMenu
 
         private Action _onActivate;
         private bool _isSwitch;
-        private float _lastTap;
         private Renderer _rend;
         private Material _mat;
         private Color _baseColor;
         private bool _gazing;
 
+        private static float _globalCooldown;
+
         private static readonly Color GazeHighlight = new Color(0.18f, 0.3f, 0.45f, 0.95f);
         private static readonly Color TapFlash = new Color(0.3f, 0.85f, 1f, 1f);
-        private const float TapGate = 0.5f;
+        private const float TapGate = 0.2f;
         private const float GazeFadeRate = 10f;
         private const float ColorEpsilon = 0.005f;
 
@@ -62,8 +63,8 @@ namespace SignalSafetyMenu
         void OnTriggerEnter(Collider other)
         {
             if (Probe == null || other != Probe) return;
-            if (Time.time - _lastTap < TapGate) return;
-            _lastTap = Time.time;
+            if (Time.time < _globalCooldown) return;
+            _globalCooldown = Time.time + TapGate;
 
             try
             {
