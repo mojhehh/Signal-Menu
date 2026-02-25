@@ -1678,26 +1678,27 @@ mark {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Fixed
           </div>
-          <div class="changelog-item fixed-item">Button tap cooldown increased from 0.2s to 0.5s (prevents accidental spam on light touches)</div>
-          <div class="changelog-item fixed-item">Restart Gorilla Tag now uses scene reload instead of Steam URL (more reliable)</div>
-          <div class="changelog-item fixed-item">Menu3D text rendering fixed with simplified TextMesh approach</div>
-          <div class="changelog-item fixed-item">Button overflow fixed with proper Y-scale adjustment</div>
+          <div class="changelog-item fixed-item">Button spam — global static cooldown (0.5s) shared across all buttons prevents rapid-fire on hold</div>
+          <div class="changelog-item fixed-item">Restart Gorilla Tag — replaced broken Steam URL launch with in-game scene reload</div>
+          <div class="changelog-item fixed-item">Menu3D text invisible — rebuilt with TextMeshPro on a WorldSpace Canvas (dynamicPixelsPerUnit 2500)</div>
+          <div class="changelog-item fixed-item">Button overflow — widened background panel Y-scale from 1.0 to 1.5</div>
         </div>
         <div class="changelog-section">
           <div class="changelog-section-title added">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Added
           </div>
-          <div class="changelog-item">Improved menu pagination with category tracking</div>
-          <div class="changelog-item">Enhanced in-game menu UI responsiveness</div>
-          <div class="changelog-item">Better font fallback handling for text rendering</div>
+          <div class="changelog-item">Global static button cooldown — all menu buttons share one timer, no more multi-fire</div>
+          <div class="changelog-item">WorldSpace Canvas with CanvasScaler (dynamicPixelsPerUnit 2500) for crisp 3D text</div>
+          <div class="changelog-item">SceneManager.LoadScene(0) restart with Application.Quit fallback</div>
         </div>
         <div class="changelog-section">
           <div class="changelog-section-title removed">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Removed
           </div>
-          <div class="changelog-item removed-item">Canvas-based TextMeshPro 3D rendering (replaced with optimized TextMesh)</div>
+          <div class="changelog-item removed-item">Raw TextMesh fallback (replaced with proper TMP on WorldSpace Canvas)</div>
+          <div class="changelog-item removed-item">Steam URL restart method (System.Diagnostics.Process.Start steam://rungameid)</div>
         </div>
       </div>
     </div>
