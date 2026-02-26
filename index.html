@@ -1585,10 +1585,10 @@ mark {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
           <h3>SignalInjector.exe</h3>
-          <span class="vt-badge">&#10003; 0/66</span>
+          <span class="vt-badge">&#10003; 0/67</span>
         </div>
         <p>The standalone injector for users who don't use BepInEx. Injectors often get flagged by antivirus software because they <strong>write to another process's memory</strong> — the same technique used by debuggers and anti-cheat tools. Despite this, Signal's injector has <strong>zero detections</strong>.</p>
-        <img src="vt-exe.png" alt="VirusTotal scan of SignalInjector.exe showing 0/66 detections" class="vt-screenshot" onclick="openVTFullscreen(this)">
+        <img src="vt-exe.png" alt="VirusTotal scan of SignalInjector.exe showing 0/67 detections" class="vt-screenshot" onclick="openVTFullscreen(this)">
       </div>
 
       <div class="safety-card">
@@ -1609,10 +1609,10 @@ mark {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           </div>
           <h3>SignalAutoUpdater.dll</h3>
-          <span class="vt-badge">&#10003; 0/66</span>
+          <span class="vt-badge">&#10003; 0/72</span>
         </div>
         <p>A lightweight companion plugin that checks for new releases on GitHub and updates the menu DLL automatically. It only contacts <strong>GitHub's public API</strong> — the same one your browser uses — and writes to your plugins folder. Fully transparent, zero detections.</p>
-        <img src="vt-updater.png" alt="VirusTotal scan of SignalAutoUpdater.dll showing 0/66 detections" class="vt-screenshot" onclick="openVTFullscreen(this)">
+        <img src="vt-updater.png" alt="VirusTotal scan of SignalAutoUpdater.dll showing 0/72 detections" class="vt-screenshot" onclick="openVTFullscreen(this)">
       </div>
     </div>
 
@@ -2151,7 +2151,7 @@ window.addEventListener('scroll', () => {
 });
 (async function fetchLatestRelease() {
   try {
-    const res = await fetch('https://api.github.com/repos/mojhehh/SignalMenu/releases/latest');
+    const res = await fetch('https://api.github.com/repos/mojhehh/SignalSafetyMenu/releases/latest');
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
     const tag = data.tag_name || data.name || '?';
@@ -2172,7 +2172,7 @@ window.addEventListener('scroll', () => {
   try {
     const [userRes, releasesRes] = await Promise.all([
       fetch('https://api.github.com/users/mojhehh'),
-      fetch('https://api.github.com/repos/mojhehh/SignalMenu/releases')
+      fetch('https://api.github.com/repos/mojhehh/SignalSafetyMenu/releases')
     ]);
     const user = await userRes.json();
     const releases = await releasesRes.json();
