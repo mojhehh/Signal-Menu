@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Signal Safety Menu — The Ultimate Mod Menu for Gorilla Tag</title>
-<meta name="description" content="Signal Safety Menu — the ultimate safety mod menu for Gorilla Tag. 155+ Harmony patches, anti-report, anti-crash, identity spoofing, stealth, and more. Download now.">
+<meta name="description" content="Signal Safety Menu — the ultimate safety mod menu for Gorilla Tag. 157+ Harmony patches, anti-report, anti-crash, identity spoofing, stealth, and more. Download now.">
 <link rel="icon" type="image/png" href="logo.png?v=120">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -1413,7 +1413,7 @@ mark {
     </h1>
     <p class="hero-description">
       Stay undetected. Stay protected. Signal Safety Menu is the most advanced protection 
-      mod for Gorilla Tag — with <strong>155+ Harmony patches</strong>, real-time shielding, 
+      mod for Gorilla Tag — with <strong>157+ Harmony patches</strong>, real-time shielding, 
       identity spoofing, and a 3D in-game menu.
     </p>
     <div class="hero-stats">
@@ -1678,28 +1678,23 @@ mark {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Fixed
           </div>
-          <div class="changelog-item fixed-item">PlayFab ban callbacks now properly suppressed (were passing errors through unchanged)</div>
-          <div class="changelog-item fixed-item">RPC call tracker returns empty dictionary instead of null (prevented NullReferenceExceptions)</div>
-          <div class="changelog-item fixed-item">Room join handler no longer clears anti-report tracking state</div>
-          <div class="changelog-item fixed-item">Auto-ban name check now uses consistent config flag</div>
-          <div class="changelog-item fixed-item">Luau VM event handler uses safe cast instead of hard cast (prevented crashes)</div>
-          <div class="changelog-item fixed-item">All device spoof patches now respect the DeviceSpoof toggle</div>
-          <div class="changelog-item fixed-item">Application.Quit blocker properly prevents zombie game state</div>
+          <div class="changelog-item fixed-item">Fixed a crash that could happen when using AntiBan more than once</div>
+          <div class="changelog-item fixed-item">Fixed a way the server could tell you were blocking tracking data</div>
+          <div class="changelog-item fixed-item">Tag game works normally again (was accidentally being blocked)</div>
+          <div class="changelog-item fixed-item">Error messages no longer leak the menu name</div>
+          <div class="changelog-item fixed-item">Room join cleanup works properly now</div>
+          <div class="changelog-item fixed-item">All mod files now fully hidden from every scan</div>
         </div>
         <div class="changelog-section">
           <div class="changelog-section-title added">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Added
           </div>
-          <div class="changelog-item">CalibrationCube assembly scan blocker &mdash; prevents the server from detecting loaded mods</div>
-          <div class="changelog-item">Global Application.Quit interceptor &mdash; catches all 17 forced-quit paths from ban detection</div>
-          <div class="changelog-item">GorillaVRConstraint kill switch blocker &mdash; disables the 1-hour delayed version-mismatch bomb</div>
-          <div class="changelog-item">CosmeticsController ban handler &mdash; blocks destructive ProcessSteamPurchaseError on AccountBanned</div>
-          <div class="changelog-item">Self-report loop blockers &mdash; patches PostTick and LateUpdate to prevent local player self-reports</div>
-          <div class="changelog-item">MonkeAgent limit override &mdash; sets RPC/error limits to max after initialization</div>
-          <div class="changelog-item">Assembly hiding &mdash; filters mod DLLs from AppDomain.GetAssemblies and spoofs Assembly.Location</div>
-          <div class="changelog-item">Stack trace sanitization &mdash; strips mod frames from Environment, Exception, and StackTrace output</div>
-          <div class="changelog-item">155+ Harmony patches (up from 143)</div>
+          <div class="changelog-item">AntiBan &mdash; kick everyone, take over the room, make it private so reports get ignored</div>
+          <div class="changelog-item">AntiBan auto-repair &mdash; if the room goes public or you lose master, it fixes itself</div>
+          <div class="changelog-item">AntiBan controls in the menu &mdash; toggle, run, set master, make private</div>
+          <div class="changelog-item">Standalone AntiBan analyzer tool</div>
+          <div class="changelog-item">157+ safety patches</div>
         </div>
       </div>
     </div>
@@ -1810,7 +1805,9 @@ const featuresData = {
       { name: "Network Safety Layer", desc: "Strips suspicious custom properties, blocks flagged events, intercepts AC disconnects" },
       { name: "Stack Trace Sanitization", desc: "Removes mod frames from all stack trace outputs to prevent detection" },
       { name: "Reflection Hiding", desc: "Hides mod types from Type.GetType, Assembly.GetTypes, and GetExportedTypes" },
-      { name: "Process Hiding", desc: "Hides debuggers and analysis tools from Process.GetProcesses enumeration" }
+      { name: "Process Hiding", desc: "Hides debuggers and analysis tools from Process.GetProcesses enumeration" },
+      { name: "AntiBan", desc: "Kick everyone, become master, make the room private so reports get thrown out" },
+      { name: "Anti-Cheat Bypass", desc: "Bypasses MonkeAgent anti-cheat — blocks RPC tracking, error limits, assembly scans, and forced disconnects" }
     ]
   },
   stealth: {
@@ -1888,7 +1885,7 @@ const featuresData = {
       { name: "Ban Detection", desc: "Intercepts ban messages and shows reason plus time remaining" },
       { name: "Auto-Updater", desc: "Checks for new versions on every launch" },
       { name: "Installer + Injector", desc: "One-click install with automatic BepInEx setup" },
-      { name: "155+ Harmony Patches", desc: "Massive patch coverage — assembly hiding, stack trace sanitization, ban detection, stealth, and more" },
+      { name: "157+ Harmony Patches", desc: "Massive patch coverage — assembly hiding, stack trace sanitization, ban detection, stealth, and more" },
       { name: "Crash Report Blocking", desc: "Stops Backtrace crash data from reaching developers" },
       { name: "Notification Blocking", desc: "Blocks mute, warning, and unmute enforcement from Mothership" },
       { name: "Spawn Crash Protection", desc: "Safely deactivates failed spawns to prevent crashes" },
@@ -2164,8 +2161,8 @@ window.addEventListener('scroll', () => {
     console.warn('Could not fetch latest release:', e);
     const badge = document.getElementById('heroBadgeVersion');
     const cl = document.getElementById('changelogVersion');
-    if (badge) badge.textContent = 'v1.2.0';
-    if (cl) cl.textContent = '1.2.0';
+    if (badge) badge.textContent = 'v1.2.1';
+    if (cl) cl.textContent = '1.2.1';
   }
 })();
 (async function fetchDevStats() {

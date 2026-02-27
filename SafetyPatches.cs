@@ -548,6 +548,8 @@ namespace SignalSafetyMenu.Patches
         internal static readonly HashSet<string> HiddenAssemblyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "SignalSafetyMenu",
+            "SignalAutoUpdater",
+            "AntiBanAnalyzer",
             "0Harmony",
             "BepInEx",
             "BepInEx.Core",
@@ -566,6 +568,8 @@ namespace SignalSafetyMenu.Patches
         internal static readonly string[] HiddenNamespacePrefixes = new[]
         {
             "SignalSafetyMenu",
+            "SignalAutoUpdater",
+            "AntiBanAnalyzer",
             "HarmonyLib",
             "MonoMod",
             "BepInEx",
@@ -631,7 +635,9 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPostfix]
         public static void Postfix()
         {
-            // Call OnRoomJoined which re-initializes tracking, not OnRoomLeft which clears it
+            // Clean up stale anti-report aura objects from previous room
+            try { AntiReport.OnRoomLeft(); } catch { }
+            // Re-initialize tracking for the new room
             try { AntiReport.OnRoomJoined(); } catch { }
         }
     }
@@ -1385,6 +1391,8 @@ namespace SignalSafetyMenu.Patches
     [HarmonyPriority(Priority.First)]
     public class PatchMothershipReport { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchSendReport; }
 
+    // Return false (not logged in) so Mothership doesn't expect telemetry from us.
+    // Returning true while blocking all telemetry creates a detectable inconsistency.
     [HarmonyPatch(typeof(MothershipClientContext), "IsClientLoggedIn")]
     [HarmonyPriority(Priority.First)]
     public class PatchMothershipLogin
@@ -1393,7 +1401,7 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref bool __result)
         {
             if (!SafetyConfig.PatchTelemetry) return true;
-            __result = true;
+            __result = false;
             return false;
         }
     }
@@ -3013,6 +3021,9 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix() => !SafetyConfig.AntiPauseDisconnectEnabled;
     }
 
+    // NOTE: ReportTag is the TAG GAME mechanic (infection/tag), NOT anti-cheat reporting.
+    // Blocking this breaks tag gameplay and causes visible desync. Only block if explicitly
+    // desired (e.g. to avoid being tagged). Gated behind PatchSendReport for now.
     [HarmonyPatch(typeof(GorillaTagManager), "ReportTag")]
     [HarmonyPriority(Priority.First)]
     public class PatchReportTag
@@ -3020,8 +3031,8 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPrefix]
         public static bool Prefix()
         {
-            if (!SafetyConfig.PatchSendReport) return true;
-            return false;
+            // Always allow tag gameplay - desync is more suspicious than the tag itself
+            return true;
         }
     }
 
@@ -3270,7 +3281,8 @@ namespace SignalSafetyMenu.Patches
             // Throw to abort the CALLER's execution too (prevents destructive DestroyImmediate
             // lines that follow Application.Quit in CosmeticsController anonymous delegates).
             // The game wraps most of these in try/catch which will safely swallow this.
-            throw new OperationCanceledException("[SignalSafety] Quit blocked");
+            // Use a generic message — exception text could leak to unpatched telemetry paths.
+            throw new OperationCanceledException("Operation was cancelled");
         }
     }
 
@@ -3286,7 +3298,7 @@ namespace SignalSafetyMenu.Patches
             if (!SafetyConfig.PatchBanDetection) return true;
             Plugin.Instance?.Log("[BAN] Application.Quit(int) blocked — game tried to force-close (likely ban detection)");
             SafetyPatches.AnnounceBanOnce();
-            throw new OperationCanceledException("[SignalSafety] Quit blocked");
+            throw new OperationCanceledException("Operation was cancelled");
         }
     }
 
