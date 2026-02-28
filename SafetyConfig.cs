@@ -22,6 +22,8 @@ namespace SignalSafetyMenu
         public static float WarningVolume = 1.0f;
         public static float BanVolume = 1.0f;
 
+        public static ButtonMapper.MenuButton MenuOpenButton = ButtonMapper.MenuButton.B_Right;
+
         public static bool CoreProtectionEnabled = true;
 
         public static bool AntiReportEnabled = true;
@@ -75,6 +77,8 @@ namespace SignalSafetyMenu
         public static bool AntiPauseDisconnectEnabled = true;
         public static bool VersionBypassEnabled = true;
         public static bool BlockModAccountSave = true;
+
+        public static bool AntiBanEnabled = false;
 
         public static int AntiReportMode = 0;
 
@@ -274,6 +278,9 @@ namespace SignalSafetyMenu
                     VersionBypassEnabled.ToString(),
                     BlockModAccountSave.ToString()
                 });
+
+                config += "|" + AntiBanEnabled.ToString();
+                config += "|" + ((int)MenuOpenButton).ToString();
 
                 File.WriteAllText(ConfigPath, EncryptConfig(config));
 
@@ -489,6 +496,15 @@ namespace SignalSafetyMenu
                     if (bool.TryParse(parts[72], out bool vbe)) VersionBypassEnabled = vbe;
                     if (bool.TryParse(parts[73], out bool bmas)) BlockModAccountSave = bmas;
                 }
+                if (parts.Length >= 75)
+                {
+                    if (bool.TryParse(parts[74], out bool abe)) AntiBanEnabled = abe;
+                }
+                if (parts.Length >= 76)
+                {
+                    if (int.TryParse(parts[75], out int mob) && mob >= 0 && mob <= 5)
+                        MenuOpenButton = (ButtonMapper.MenuButton)mob;
+                }
             }
             catch { }
         }
@@ -544,6 +560,8 @@ namespace SignalSafetyMenu
             AntiPauseDisconnectEnabled = true;
             VersionBypassEnabled = true;
             BlockModAccountSave = true;
+            AntiBanEnabled = false;
+            MenuOpenButton = ButtonMapper.MenuButton.B_Right;
 
             MenuDetectionEnabled = true;
             MenuDetectionAlertEnabled = true;

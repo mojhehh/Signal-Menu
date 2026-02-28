@@ -15,7 +15,8 @@ namespace SignalSafetyMenu
         private const int PAGE_ADVANCED = 1;
         private const int PAGE_IDENTITY = 2;
         private const int PAGE_AUDIO = 3;
-        private const int PAGE_EXTRA = 4;
+        private const int PAGE_CONTROLS = 4;
+        private const int PAGE_EXTRA = 5;
 
         private static Vector2 extraScrollPos = Vector2.zero;
 
@@ -24,8 +25,7 @@ namespace SignalSafetyMenu
             bool secondaryPressed = false;
             try
             {
-                secondaryPressed = ControllerInputPoller.instance != null &&
-                     ControllerInputPoller.instance.rightControllerSecondaryButton;
+                secondaryPressed = ButtonMapper.IsMenuButtonPressed();
             }
             catch { }
 
@@ -82,6 +82,7 @@ namespace SignalSafetyMenu
             }
             if (GUILayout.Button("Identity", buttonStyle)) currentPage = PAGE_IDENTITY;
             if (GUILayout.Button("Audio", buttonStyle)) currentPage = PAGE_AUDIO;
+            if (GUILayout.Button("Controls", buttonStyle)) currentPage = PAGE_CONTROLS;
             if (GUILayout.Button("Extra", buttonStyle)) currentPage = PAGE_EXTRA;
             GUILayout.EndHorizontal();
 
@@ -101,6 +102,9 @@ namespace SignalSafetyMenu
                 case PAGE_AUDIO:
                     DrawAudioPage(headerStyle, labelStyle, toggleStyle);
                     break;
+                case PAGE_CONTROLS:
+                    DrawControlsPage(headerStyle, labelStyle, buttonStyle);
+                    break;
                 case PAGE_EXTRA:
                     DrawExtraPage(headerStyle, labelStyle, toggleStyle, buttonStyle);
                     break;
@@ -111,7 +115,7 @@ namespace SignalSafetyMenu
             GUILayout.BeginHorizontal();
             GUILayout.Label($"Patches: {Plugin.SuccessfulPatches}/{Plugin.TotalPatches}", labelStyle);
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Y to close", labelStyle);
+            GUILayout.Label(ButtonMapper.GetButtonName(SafetyConfig.MenuOpenButton) + " to close", labelStyle);
             GUILayout.EndHorizontal();
 
             GUI.DragWindow();
@@ -173,7 +177,7 @@ namespace SignalSafetyMenu
 
             GUILayout.Label("═══ INFO ═══", headerStyle);
             GUILayout.Label("Signal Safety Menu provides comprehensive", labelStyle);
-            GUILayout.Label("anti-ban protection with 120+ patches.", labelStyle);
+            GUILayout.Label("anti-ban protection with 157+ patches.", labelStyle);
             GUILayout.Label("", labelStyle);
             GUILayout.Label("Use Advanced page for individual toggles.", labelStyle);
             GUILayout.Label("Use Identity page to change your name.", labelStyle);
@@ -495,6 +499,70 @@ namespace SignalSafetyMenu
 
             GUILayout.Label("Sound files location:", labelStyle);
             GUILayout.Label("[Gorilla Tag]/nexussounds/", labelStyle);
+        }
+
+        private static void DrawControlsPage(GUIStyle headerStyle, GUIStyle labelStyle, GUIStyle buttonStyle)
+        {
+            GUILayout.Label("═══ MENU CONTROLS ═══", headerStyle);
+            GUILayout.Space(10);
+
+            GUILayout.Label("Menu Open Button:", labelStyle);
+            GUILayout.Space(5);
+
+            string currentButtonName = ButtonMapper.GetButtonName(SafetyConfig.MenuOpenButton);
+            GUILayout.Label($"Current: {currentButtonName}", labelStyle);
+            GUILayout.Space(10);
+
+            GUILayout.Label("Choose button mapping:", labelStyle);
+            GUILayout.Space(5);
+
+            if (GUILayout.Button("Y (Left Controller)", buttonStyle))
+            {
+                SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.Y_Left;
+                SafetyConfig.Save();
+                AudioManager.Play("safety_enabled", AudioManager.AudioCategory.Protection);
+            }
+
+            if (GUILayout.Button("B (Right Controller)", buttonStyle))
+            {
+                SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.B_Right;
+                SafetyConfig.Save();
+                AudioManager.Play("safety_enabled", AudioManager.AudioCategory.Protection);
+            }
+
+            if (GUILayout.Button("X (Left Controller)", buttonStyle))
+            {
+                SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.X_Left;
+                SafetyConfig.Save();
+                AudioManager.Play("safety_enabled", AudioManager.AudioCategory.Protection);
+            }
+
+            if (GUILayout.Button("A (Right Controller)", buttonStyle))
+            {
+                SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.A_Right;
+                SafetyConfig.Save();
+                AudioManager.Play("safety_enabled", AudioManager.AudioCategory.Protection);
+            }
+
+            if (GUILayout.Button("Grip Trigger (Both)", buttonStyle))
+            {
+                SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.PrimaryTrigger;
+                SafetyConfig.Save();
+                AudioManager.Play("safety_enabled", AudioManager.AudioCategory.Protection);
+            }
+
+            if (GUILayout.Button("Index Trigger (Both)", buttonStyle))
+            {
+                SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.SecondaryTrigger;
+                SafetyConfig.Save();
+                AudioManager.Play("safety_enabled", AudioManager.AudioCategory.Protection);
+            }
+
+            GUILayout.Space(20);
+
+            GUI.color = Color.gray;
+            GUILayout.Label("Note: Changes take effect immediately.", labelStyle);
+            GUI.color = Color.white;
         }
 
         private static void DrawExtraPage(GUIStyle headerStyle, GUIStyle labelStyle, GUIStyle toggleStyle, GUIStyle buttonStyle)

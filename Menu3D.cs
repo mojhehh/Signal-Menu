@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -27,7 +27,7 @@ namespace SignalSafetyMenu
         private const int BTN_OFF = 2;
         private const float BD = 0.1f;
 
-        private static readonly string[] CAT = { "Main", "Advanced", "Identity", "Audio", "Extra" };
+        private static readonly string[] CAT = { "Safety", "Bypass", "Identity", "Audio", "Anti-Ban", "Spoof", "Tools", "Controls" };
 
         private struct Entry
         {
@@ -48,7 +48,6 @@ namespace SignalSafetyMenu
         {
             if (_font != null) return;
 
-            // Same approach as ii's menu — load LiberationSans SDF from Unity's built-in TMP resources
             try
             {
                 _font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
@@ -60,7 +59,6 @@ namespace SignalSafetyMenu
             }
             catch { }
 
-            // Fallback: find any TMP font asset in resources
             try
             {
                 foreach (var f in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())
@@ -78,7 +76,10 @@ namespace SignalSafetyMenu
             if (_font == null) GrabFont();
 
             bool btn = false;
-            try { btn = ControllerInputPoller.instance != null && ControllerInputPoller.instance.leftControllerSecondaryButton; }
+            try 
+            { 
+                btn = ButtonMapper.IsMenuButtonPressed();
+            }
             catch { }
 
             if (btn && !_lastBtn)
@@ -155,7 +156,7 @@ namespace SignalSafetyMenu
             bg.transform.localScale = new Vector3(0.1f, 1.5f, 1f);
             Paint(bg, th.PanelColor);
 
-            string title = "Signal / " + CAT[Mathf.Clamp(_catOfPage, 0, 4)] + "  (" + (_page + 1) + "/" + _pageCount + ")";
+            string title = "Signal / " + CAT[Mathf.Clamp(_catOfPage, 0, CAT.Length - 1)] + "  (" + (_page + 1) + "/" + _pageCount + ")";
             float titleZ = 0.28f + BD * 1.5f;
             MakeLabel(title, new Vector3(0.06f, 0f, 0.165f + (titleZ - 0.43f) / 2.6f), new Vector2(0.28f, 0.05f), th.AccentColor);
 
@@ -214,7 +215,6 @@ namespace SignalSafetyMenu
         {
             GrabFont();
 
-            // Matches ii's menu text creation exactly
             var t = new GameObject
             {
                 transform = { parent = _canvasObj.transform }
@@ -285,6 +285,7 @@ namespace SignalSafetyMenu
             L.Add(Tog("Anti-Report", 0, () => SafetyConfig.AntiReportEnabled, v => { SafetyConfig.AntiReportEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("Block Telemetry", 0, () => SafetyConfig.TelemetryBlockEnabled, v => { SafetyConfig.TelemetryBlockEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("Block PlayFab Reports", 0, () => SafetyConfig.PlayFabBlockEnabled, v => { SafetyConfig.PlayFabBlockEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Core Property Filter", 0, () => SafetyConfig.CoreProtectionEnabled, v => { SafetyConfig.CoreProtectionEnabled = v; SafetyConfig.Save(); }));
             L.Add(new Entry { Label = "Theme: " + ThemeManager.CurrentTheme.Name, Press = () => ThemeManager.StepPalette(), Cat = 0 });
 
             L.Add(Tog("Device Spoofing", 1, () => SafetyConfig.DeviceSpoofEnabled, v => { SafetyConfig.DeviceSpoofEnabled = v; SafetyConfig.Save(); }));
@@ -293,13 +294,15 @@ namespace SignalSafetyMenu
             L.Add(Tog("Grace Period Bypass", 1, () => SafetyConfig.GraceBypassEnabled, v => { SafetyConfig.GraceBypassEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("KID Bypass", 1, () => SafetyConfig.KIDBypassEnabled, v => { SafetyConfig.KIDBypassEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("Name Ban Bypass", 1, () => SafetyConfig.NameBanBypassEnabled, v => { SafetyConfig.NameBanBypassEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Core Property Filter", 1, () => SafetyConfig.CoreProtectionEnabled, v => { SafetyConfig.CoreProtectionEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("TOS/Age Bypass", 1, () => SafetyConfig.TOSBypassEnabled, v => { SafetyConfig.TOSBypassEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Automod Bypass", 1, () => SafetyConfig.AutomodBypassEnabled, v => { SafetyConfig.AutomodBypassEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("Error Logging", 1, () => SafetyConfig.ErrorLoggingEnabled, v => { SafetyConfig.ErrorLoggingEnabled = v; SafetyConfig.Save(); }));
             L.Add(new Entry { Label = "Reset All Defaults", Press = () => SafetyConfig.ResetToDefaults(), Cat = 1 });
 
             L.Add(Tog("Identity Change", 2, () => SafetyConfig.IdentityChangeEnabled, v => { SafetyConfig.IdentityChangeEnabled = v; SafetyConfig.Save(); if (v) IdentityChanger.ApplyRandomName(); }));
             L.Add(new Entry { Label = "Apply Change Now", Press = () => { IdentityChanger.ApplyRandomName(); if (SafetyConfig.ColorChangeEnabled) IdentityChanger.ApplyRandomColor(); }, Cat = 2 });
-            L.Add(new Entry { Label = "Disconnect", Press = () => { try { PhotonNetwork.Disconnect(); } catch { } }, Cat = 2 });
+            L.Add(Tog("Random Color", 2, () => SafetyConfig.ColorChangeEnabled, v => { SafetyConfig.ColorChangeEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Name on DC", 2, () => SafetyConfig.ChangeIdentityOnDisconnect, v => { SafetyConfig.ChangeIdentityOnDisconnect = v; SafetyConfig.Save(); }));
             L.Add(Tog("Smart Mode", 2, () => AntiReport.SmartMode, v => { AntiReport.SmartMode = v; SafetyConfig.Save(); }));
             L.Add(Tog("Detection Zones", 2, () => AntiReport.VisualizerEnabled, v => { AntiReport.VisualizerEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("Detect Mute Btn", 2, () => AntiReport.AntiMute, v => { AntiReport.AntiMute = v; SafetyConfig.Save(); }));
@@ -315,35 +318,47 @@ namespace SignalSafetyMenu
             L.Add(Tog("Warning Sounds", 3, () => SafetyConfig.PlayWarningAudio, v => { SafetyConfig.PlayWarningAudio = v; SafetyConfig.Save(); }));
             L.Add(Tog("Ban Detect Sounds", 3, () => SafetyConfig.PlayBanAudio, v => { SafetyConfig.PlayBanAudio = v; SafetyConfig.Save(); }));
 
-            L.Add(Tog("Moderator Detect", 4, () => SafetyConfig.ModeratorDetectorEnabled, v => { SafetyConfig.ModeratorDetectorEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Anti-Creator", 4, () => SafetyConfig.AntiContentCreatorEnabled, v => { SafetyConfig.AntiContentCreatorEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Cosmetic Notifs", 4, () => SafetyConfig.CosmeticNotificationsEnabled, v => { SafetyConfig.CosmeticNotificationsEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Automod Bypass", 4, () => SafetyConfig.AutomodBypassEnabled, v => { SafetyConfig.AutomodBypassEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Anti-Predictions", 4, () => SafetyConfig.AntiPredictionsEnabled, v => { SafetyConfig.AntiPredictionsEnabled = v; SafetyConfig.Save(); if (!v) Patches.AntiPredictions.Reset(); }));
-            L.Add(Tog("Anti-Lurker", 4, () => SafetyConfig.AntiLurkerEnabled, v => { SafetyConfig.AntiLurkerEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Fake Oculus Menu", 4, () => SafetyConfig.FakeOculusMenuEnabled, v => { SafetyConfig.FakeOculusMenuEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Fake Broken Ctrl", 4, () => SafetyConfig.FakeBrokenControllerEnabled, v => { SafetyConfig.FakeBrokenControllerEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Fake Report Menu", 4, () => SafetyConfig.FakeReportMenuEnabled, v => { SafetyConfig.FakeReportMenuEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Fake Valve Track", 4, () => SafetyConfig.FakeValveTrackingEnabled, v => { SafetyConfig.FakeValveTrackingEnabled = v; SafetyConfig.Save(); }));
+            L.Add(new Entry { Label = SafetyConfig.AntiBanEnabled ? "[ON] Anti-Ban" : "[OFF] Anti-Ban", Toggle = true, IsOn = () => SafetyConfig.AntiBanEnabled, Press = () => AntiBanTutorialPrompt(), Cat = 4 });
+            L.Add(new Entry { Label = AntiBan.IsRunning ? "[Running] " + AntiBan.Status : "Run Anti-Ban", Press = () => AntiBan.RunAntiBan(), Cat = 4 });
+            L.Add(new Entry { Label = "Set Master Client", Press = () => AntiBan.SetMasterClientToSelf(), Cat = 4 });
+            L.Add(new Entry { Label = AntiBan.IsActive ? "Disable Anti-Ban" : "Make Room Private", Press = () => { if (AntiBan.IsActive) { AntiBan.Disable(); } else { AntiBan.SetRoomPrivate(true); AntiBan.SetMasterClientToSelf(); } }, Cat = 4 });
             L.Add(Tog("Anti-Crash", 4, () => SafetyConfig.AntiCrashEnabled, v => { SafetyConfig.AntiCrashEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("Anti-Kick", 4, () => SafetyConfig.AntiKickEnabled, v =>
             {
                 SafetyConfig.AntiKickEnabled = v; SafetyConfig.Save();
                 if (v) Patches.AntiKickHelper.Enable(); else Patches.AntiKickHelper.Disable();
             }));
-            L.Add(Tog("Show AC Reports", 4, () => SafetyConfig.ShowACReportsEnabled, v => { SafetyConfig.ShowACReportsEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Auto GC", 4, () => SafetyConfig.AutoGCEnabled, v => { SafetyConfig.AutoGCEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Spoof Support", 4, () => SafetyConfig.SupportPageSpoofEnabled, v => { SafetyConfig.SupportPageSpoofEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Ranked Spoof", 4, () => SafetyConfig.RankedSpoofEnabled, v => { SafetyConfig.RankedSpoofEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Name on DC", 4, () => SafetyConfig.ChangeIdentityOnDisconnect, v => { SafetyConfig.ChangeIdentityOnDisconnect = v; SafetyConfig.Save(); }));
-            L.Add(Tog("Random Color", 4, () => SafetyConfig.ColorChangeEnabled, v => { SafetyConfig.ColorChangeEnabled = v; SafetyConfig.Save(); }));
-            L.Add(new Entry { Label = "Flush RPCs", Press = () => Patches.RPCFlusher.Flush(), Cat = 4 });
-            L.Add(new Entry { Label = "Fix Lobby", Press = () => Patches.LobbyFixer.Fix(), Cat = 4 });
-            L.Add(new Entry { Label = "Rejoin Lobby", Press = () => Patches.LobbyFixer.Rejoin(), Cat = 4 });
-            L.Add(new Entry { Label = "RESTART", Press = () => Patches.GameRestarter.Restart(), Cat = 4 });
-            L.Add(Tog("FPS Spoof", 4, () => SafetyConfig.FPSSpoofEnabled, v => { SafetyConfig.FPSSpoofEnabled = v; SafetyConfig.Save(); }));
-            L.Add(Tog("TOS/Age Bypass", 4, () => SafetyConfig.TOSBypassEnabled, v => { SafetyConfig.TOSBypassEnabled = v; SafetyConfig.Save(); }));
             L.Add(Tog("Anti-Name Ban", 4, () => SafetyConfig.AntiNameBanEnabled, v => { SafetyConfig.AntiNameBanEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Anti-Creator", 4, () => SafetyConfig.AntiContentCreatorEnabled, v => { SafetyConfig.AntiContentCreatorEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Anti-Lurker", 4, () => SafetyConfig.AntiLurkerEnabled, v => { SafetyConfig.AntiLurkerEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Anti-Predictions", 4, () => SafetyConfig.AntiPredictionsEnabled, v => { SafetyConfig.AntiPredictionsEnabled = v; SafetyConfig.Save(); if (!v) Patches.AntiPredictions.Reset(); }));
+            L.Add(Tog("Moderator Detect", 4, () => SafetyConfig.ModeratorDetectorEnabled, v => { SafetyConfig.ModeratorDetectorEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Show AC Reports", 4, () => SafetyConfig.ShowACReportsEnabled, v => { SafetyConfig.ShowACReportsEnabled = v; SafetyConfig.Save(); }));
+
+            L.Add(Tog("Fake Oculus Menu", 5, () => SafetyConfig.FakeOculusMenuEnabled, v => { SafetyConfig.FakeOculusMenuEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Fake Broken Ctrl", 5, () => SafetyConfig.FakeBrokenControllerEnabled, v => { SafetyConfig.FakeBrokenControllerEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Fake Report Menu", 5, () => SafetyConfig.FakeReportMenuEnabled, v => { SafetyConfig.FakeReportMenuEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Fake Valve Track", 5, () => SafetyConfig.FakeValveTrackingEnabled, v => { SafetyConfig.FakeValveTrackingEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("FPS Spoof", 5, () => SafetyConfig.FPSSpoofEnabled, v => { SafetyConfig.FPSSpoofEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Ranked Spoof", 5, () => SafetyConfig.RankedSpoofEnabled, v => { SafetyConfig.RankedSpoofEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Spoof Support", 5, () => SafetyConfig.SupportPageSpoofEnabled, v => { SafetyConfig.SupportPageSpoofEnabled = v; SafetyConfig.Save(); }));
+
+            L.Add(Tog("Cosmetic Notifs", 6, () => SafetyConfig.CosmeticNotificationsEnabled, v => { SafetyConfig.CosmeticNotificationsEnabled = v; SafetyConfig.Save(); }));
+            L.Add(Tog("Auto GC", 6, () => SafetyConfig.AutoGCEnabled, v => { SafetyConfig.AutoGCEnabled = v; SafetyConfig.Save(); }));
+            L.Add(new Entry { Label = "Disconnect", Press = () => { try { PhotonNetwork.Disconnect(); } catch { } }, Cat = 6 });
+            L.Add(new Entry { Label = "Flush RPCs", Press = () => Patches.RPCFlusher.Flush(), Cat = 6 });
+            L.Add(new Entry { Label = "Fix Lobby", Press = () => Patches.LobbyFixer.Fix(), Cat = 6 });
+            L.Add(new Entry { Label = "Rejoin Lobby", Press = () => Patches.LobbyFixer.Rejoin(), Cat = 6 });
+            L.Add(new Entry { Label = "New Public Room", Press = () => AntiBan.MakeNewPublicRoom(), Cat = 6 });
+            L.Add(new Entry { Label = "RESTART", Press = () => Patches.GameRestarter.Restart(), Cat = 6 });
+
+            L.Add(new Entry { Label = "Current: " + ButtonMapper.GetButtonName(SafetyConfig.MenuOpenButton), Press = () => {}, Cat = 7 });
+            L.Add(new Entry { Label = "Set: Y (Left)", Press = () => { SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.Y_Left; SafetyConfig.Save(); }, Cat = 7 });
+            L.Add(new Entry { Label = "Set: B (Right)", Press = () => { SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.B_Right; SafetyConfig.Save(); }, Cat = 7 });
+            L.Add(new Entry { Label = "Set: X (Left)", Press = () => { SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.X_Left; SafetyConfig.Save(); }, Cat = 7 });
+            L.Add(new Entry { Label = "Set: A (Right)", Press = () => { SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.A_Right; SafetyConfig.Save(); }, Cat = 7 });
+            L.Add(new Entry { Label = "Set: Grip Trigger", Press = () => { SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.PrimaryTrigger; SafetyConfig.Save(); }, Cat = 7 });
+            L.Add(new Entry { Label = "Set: Index Trigger", Press = () => { SafetyConfig.MenuOpenButton = ButtonMapper.MenuButton.SecondaryTrigger; SafetyConfig.Save(); }, Cat = 7 });
 
             return L;
         }
@@ -358,6 +373,46 @@ namespace SignalSafetyMenu
                 Toggle = true,
                 Cat = cat,
             };
+        }
+
+        private static bool _tutorialShownThisSession = false;
+
+        private void AntiBanTutorialPrompt()
+        {
+            if (SafetyConfig.AntiBanEnabled)
+            {
+                SafetyConfig.AntiBanEnabled = false;
+                SafetyConfig.Save();
+                return;
+            }
+
+            if (_tutorialShownThisSession)
+            {
+                SafetyConfig.AntiBanEnabled = true;
+                SafetyConfig.Save();
+                return;
+            }
+
+            AudioManager.Play("antiban_tutorial_prompt", AudioManager.AudioCategory.Warning);
+
+            Popup3D.Show(
+                "Would you like a tutorial\nfor how to use Anti-Ban?\n\nIt's not a simple toggle.",
+                () =>
+                {
+                    _tutorialShownThisSession = true;
+                    AudioManager.Play("antiban_tutorial", AudioManager.AudioCategory.Warning);
+                    SafetyConfig.AntiBanEnabled = true;
+                    SafetyConfig.Save();
+                    RebuildMenu();
+                },
+                () =>
+                {
+                    _tutorialShownThisSession = true;
+                    SafetyConfig.AntiBanEnabled = true;
+                    SafetyConfig.Save();
+                    RebuildMenu();
+                }
+            );
         }
 
         void OnDestroy()

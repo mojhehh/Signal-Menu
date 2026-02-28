@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -90,6 +90,16 @@ namespace SignalSafetyMenu.Patches
 
             Plugin.Instance?.Log("[BAN] Account ban detected � playing alert");
             AudioManager.Play("banned", AudioManager.AudioCategory.Ban);
+        }
+
+        private static bool _quitBlockAnnounced = false;
+        public static void AnnounceQuitBlocked()
+        {
+            if (_quitBlockAnnounced) return;
+            _quitBlockAnnounced = true;
+
+            Plugin.Instance?.Log("[BAN] Quit blocked mid-game - playing ban notification TTS");
+            AudioManager.Play("ban_notification_dramatic", AudioManager.AudioCategory.Ban);
         }
 
         private static string _spoofedHWID = null;
@@ -542,8 +552,6 @@ namespace SignalSafetyMenu.Patches
         internal static bool ShouldAllowHarmlessTelemetry() => !ShouldBlockTelemetry();
         internal static bool ShouldBlockPlayFab() => SafetyConfig.PatchPlayFabReport;
 
-        // ===== ASSEMBLY HIDING HELPERS =====
-        // Used by assembly/reflection/stack-trace stealth patches to identify mod assemblies.
 
         internal static readonly HashSet<string> HiddenAssemblyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -635,9 +643,7 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPostfix]
         public static void Postfix()
         {
-            // Clean up stale anti-report aura objects from previous room
             try { AntiReport.OnRoomLeft(); } catch { }
-            // Re-initialize tracking for the new room
             try { AntiReport.OnRoomJoined(); } catch { }
         }
     }
@@ -709,7 +715,6 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref object __result)
         {
             if (!SafetyConfig.PatchRPCLimits) return true;
-            // Return a new empty Dictionary instead of null to prevent NREs in callers
             __result = new Dictionary<string, int>();
             return false;
         }
@@ -1391,8 +1396,6 @@ namespace SignalSafetyMenu.Patches
     [HarmonyPriority(Priority.First)]
     public class PatchMothershipReport { [HarmonyPrefix] public static bool Prefix() => !SafetyConfig.PatchSendReport; }
 
-    // Return false (not logged in) so Mothership doesn't expect telemetry from us.
-    // Returning true while blocking all telemetry creates a detectable inconsistency.
     [HarmonyPatch(typeof(MothershipClientContext), "IsClientLoggedIn")]
     [HarmonyPriority(Priority.First)]
     public class PatchMothershipLogin
@@ -1478,7 +1481,6 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix(ref bool __result)
         {
             if (!SafetyConfig.PatchAutoBanList) return true;
-            // Consistent with other autoban patches — only check PatchAutoBanList
             __result = true;
             return false;
         }
@@ -1581,7 +1583,6 @@ namespace SignalSafetyMenu.Patches
                             {
                                 Plugin.Instance?.Log($"[BAN] PlayFab HTTP intercepted: {msg}");
                                 SafetyPatches.AnnounceBanOnce();
-                                // Suppress the callback — don't let the game process the ban
                                 return;
                             }
                             originalCallback?.Invoke(error);
@@ -1618,7 +1619,6 @@ namespace SignalSafetyMenu.Patches
                             {
                                 Plugin.Instance?.Log($"[BAN] PlayFab WebRequest intercepted: {msg}");
                                 SafetyPatches.AnnounceBanOnce();
-                                // Suppress the callback — don't let the game process the ban
                                 return;
                             }
                             originalCallback?.Invoke(error);
@@ -2429,7 +2429,19 @@ namespace SignalSafetyMenu.Patches
             {
                 if (PhotonNetwork.LocalPlayer != null)
                     PhotonNetwork.RemoveRPCs(PhotonNetwork.LocalPlayer);
-                Plugin.Instance?.Log("[RPC] Flushed buffered RPCs");
+
+                try
+                {
+                    if (MonkeAgent.instance != null)
+                    {
+                        MonkeAgent.instance.rpcErrorMax = 999999;
+                        MonkeAgent.instance.rpcCallLimit = 999999;
+                        MonkeAgent.instance.logErrorMax = 999999;
+                    }
+                }
+                catch { }
+
+                Plugin.Instance?.Log("[RPC] Flushed buffered RPCs + reset AC counters");
                 return true;
             }
             catch { return false; }
@@ -2652,7 +2664,36 @@ namespace SignalSafetyMenu.Patches
                 }
                 catch { }
 
-                Plugin.Instance?.Log("[LobbyFix] Cleared RPCs, properties, and counters");
+                try
+                {
+                    if (MonkeAgent.instance != null)
+                    {
+                        MonkeAgent.instance.rpcErrorMax = 999999;
+                        MonkeAgent.instance.rpcCallLimit = 999999;
+                        MonkeAgent.instance.logErrorMax = 999999;
+                    }
+                }
+                catch { }
+
+                try
+                {
+                    PhotonNetwork.MaxResendsBeforeDisconnect = 25;
+                    PhotonNetwork.QuickResends = 3;
+                }
+                catch { }
+
+                try
+                {
+                    if (MonkeAgent.instance != null)
+                    {
+                        MonkeAgent.instance.reportedPlayers?.Clear();
+                    }
+                }
+                catch { }
+
+                try { System.GC.Collect(0, System.GCCollectionMode.Optimized); } catch { }
+
+                Plugin.Instance?.Log("[LobbyFix] Cleared RPCs, properties, AC counters, and report cache");
                 return true;
             }
             catch { return false; }
@@ -3021,9 +3062,6 @@ namespace SignalSafetyMenu.Patches
         public static bool Prefix() => !SafetyConfig.AntiPauseDisconnectEnabled;
     }
 
-    // NOTE: ReportTag is the TAG GAME mechanic (infection/tag), NOT anti-cheat reporting.
-    // Blocking this breaks tag gameplay and causes visible desync. Only block if explicitly
-    // desired (e.g. to avoid being tagged). Gated behind PatchSendReport for now.
     [HarmonyPatch(typeof(GorillaTagManager), "ReportTag")]
     [HarmonyPriority(Priority.First)]
     public class PatchReportTag
@@ -3031,7 +3069,6 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPrefix]
         public static bool Prefix()
         {
-            // Always allow tag gameplay - desync is more suspicious than the tag itself
             return true;
         }
     }
@@ -3215,12 +3252,7 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // ===== NEW P0 PATCHES =====
 
-    // P0 CRITICAL: CalibrationCube.OnCollisionExit scans AppDomain assemblies against an allowlist.
-    // If ANY unrecognized assembly is found, includeUpdatedServerSynchTest stays non-zero
-    // and gets sent to the server during version check — THE SERVER KNOWS YOU HAVE MODS.
-    // Block this entirely.
     [HarmonyPatch(typeof(CalibrationCube), "OnCollisionExit")]
     [HarmonyPriority(Priority.First)]
     public class PatchCalibrationCubeAssemblyScan
@@ -3228,10 +3260,6 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPrefix]
         public static bool Prefix()
         {
-            // MUST explicitly set to 0 — this field may be serialized as non-zero by Unity Inspector.
-            // The original code only resets to 0 when assemblies pass the allowlist.
-            // If we just skip the scan, the field stays at its serialized value (possibly non-zero)
-            // which gets sent to the server as "mods detected".
             try
             {
                 if (GorillaComputer.instance != null)
@@ -3242,7 +3270,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // P0 CRITICAL: Also patch CalibrationCube.Start which calls OnCollisionExit(null) directly
     [HarmonyPatch(typeof(CalibrationCube), "Start")]
     [HarmonyPriority(Priority.First)]
     public class PatchCalibrationCubeStart
@@ -3250,7 +3277,6 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPrefix]
         public static bool Prefix()
         {
-            // Same safety — ensure clean flag even if OnCollisionExit patch is bypassed
             try
             {
                 if (GorillaComputer.instance != null)
@@ -3261,10 +3287,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // P0 CRITICAL: Global Application.Quit interceptor.
-    // CosmeticsController has 7 Application.Quit() calls on AccountBanned errors,
-    // 5 of which are in anonymous delegates that can't be individually patched.
-    // This catches ALL of them plus any other forced quit from the game.
     [HarmonyPatch(typeof(Application), "Quit", new Type[0])]
     [HarmonyPriority(Priority.First)]
     public class PatchApplicationQuit
@@ -3278,15 +3300,11 @@ namespace SignalSafetyMenu.Patches
             if (!SafetyConfig.PatchBanDetection) return true;
             Plugin.Instance?.Log("[BAN] Application.Quit() blocked — game tried to force-close (likely ban detection)");
             SafetyPatches.AnnounceBanOnce();
-            // Throw to abort the CALLER's execution too (prevents destructive DestroyImmediate
-            // lines that follow Application.Quit in CosmeticsController anonymous delegates).
-            // The game wraps most of these in try/catch which will safely swallow this.
-            // Use a generic message — exception text could leak to unpatched telemetry paths.
+            SafetyPatches.AnnounceQuitBlocked();
             throw new OperationCanceledException("Operation was cancelled");
         }
     }
 
-    // Also patch the overload with exit code
     [HarmonyPatch(typeof(Application), "Quit", new Type[] { typeof(int) })]
     [HarmonyPriority(Priority.First)]
     public class PatchApplicationQuitCode
@@ -3298,13 +3316,11 @@ namespace SignalSafetyMenu.Patches
             if (!SafetyConfig.PatchBanDetection) return true;
             Plugin.Instance?.Log("[BAN] Application.Quit(int) blocked — game tried to force-close (likely ban detection)");
             SafetyPatches.AnnounceBanOnce();
+            SafetyPatches.AnnounceQuitBlocked();
             throw new OperationCanceledException("Operation was cancelled");
         }
     }
 
-    // P0 CRITICAL: GorillaVRConstraint.Tick is a delayed kill switch.
-    // If NetworkSystem.Instance.WrongVersion is true, after 'angle' seconds (default 3600 = 1 hour)
-    // it calls ForceStopGame_DisconnectAndDestroy(). This is a version-mismatch time bomb.
     [HarmonyPatch(typeof(GorillaVRConstraint), "Tick")]
     [HarmonyPriority(Priority.First)]
     public class PatchGorillaVRConstraintTick
@@ -3312,15 +3328,11 @@ namespace SignalSafetyMenu.Patches
         [HarmonyPrefix]
         public static bool Prefix(GorillaVRConstraint __instance)
         {
-            // Prevent the kill switch from ever firing by keeping isConstrained false
             __instance.isConstrained = false;
             return false;
         }
     }
 
-    // P1: Patch CosmeticsController.ProcessSteamPurchaseError — one of the named methods
-    // that calls Application.Quit on AccountBanned. Although the global Application.Quit patch
-    // catches this too, this prevents the destructive DestroyImmediate calls before it.
     [HarmonyPatch(typeof(GorillaNetworking.CosmeticsController), "ProcessSteamPurchaseError")]
     [HarmonyPriority(Priority.First)]
     public class PatchProcessSteamPurchaseError
@@ -3335,18 +3347,14 @@ namespace SignalSafetyMenu.Patches
                 {
                     Plugin.Instance?.Log("[BAN] ProcessSteamPurchaseError AccountBanned intercepted");
                     SafetyPatches.AnnounceBanOnce();
-                    return false; // Block the destructive ban handler
+                    return false;
                 }
             }
             catch { SafetyPatches.TrackError(); }
-            return true; // Let non-ban errors through
+            return true;
         }
     }
 
-    // P1: GorillaNetworkPublicTestsJoin.PostTick — the main self-report loop.
-    // GracePeriod is already patched, but PostTick calls StartCoroutine(GracePeriod()) 
-    // which means the coroutine is started even if GracePeriod is patched out.
-    // Block PostTick entirely when safety is active to prevent self-reports.
     [HarmonyPatch(typeof(GorillaNetworkPublicTestsJoin), "PostTick")]
     [HarmonyPriority(Priority.First)]
     public class PatchPublicTestsPostTick
@@ -3358,8 +3366,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // P1: GorillaNetworkPublicTestJoin2.LateUpdate — duplicate self-report loop.
-    // Same logic as above but for the second test class.
     [HarmonyPatch(typeof(GorillaNetworkPublicTestJoin2), "LateUpdate")]
     [HarmonyPriority(Priority.First)]
     public class PatchPublicTestJoin2LateUpdate
@@ -3371,9 +3377,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // P2: MonkeAgent.Start postfix — re-override RPC limits after MonkeAgent initializes.
-    // The existing RPCProtection() sets these at runtime, but MonkeAgent.Start could
-    // reset them from Inspector values. This ensures they stay at safe values.
     [HarmonyPatch(typeof(MonkeAgent), "Start")]
     [HarmonyPriority(Priority.Last)]
     public class PatchMonkeAgentStart
@@ -3393,14 +3396,7 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // ===== ASSEMBLY HIDING & STEALTH PATCHES =====
-    // Adapted from SignalMenuFork. These are CRITICAL for stealth — without them,
-    // any code that calls AppDomain.GetAssemblies() or inspects stack traces
-    // can detect our mod, even with CalibrationCube patched.
 
-    // Filter mod assemblies from AppDomain.GetAssemblies() results.
-    // This is the single most important stealth patch — it protects against
-    // ANY assembly scan, not just CalibrationCube's.
     [HarmonyPatch(typeof(AppDomain), "GetAssemblies", new Type[0])]
     [HarmonyPriority(Priority.Last)]
     public class PatchAppDomainGetAssemblies
@@ -3417,8 +3413,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // Spoof Assembly.Location to empty string for mod assemblies.
-    // Prevents detection via file path inspection.
     [HarmonyPatch(typeof(Assembly), "Location", MethodType.Getter)]
     [HarmonyPriority(Priority.Last)]
     public class PatchAssemblyLocation
@@ -3435,7 +3429,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // Sanitize Environment.StackTrace — removes mod frames so logged traces don't reveal us.
     [HarmonyPatch(typeof(Environment), "StackTrace", MethodType.Getter)]
     [HarmonyPriority(Priority.Last)]
     public class PatchEnvironmentStackTrace
@@ -3452,7 +3445,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // Sanitize StackTrace.ToString() — same purpose, different entry point.
     [HarmonyPatch(typeof(System.Diagnostics.StackTrace), "ToString", new Type[0])]
     [HarmonyPriority(Priority.Last)]
     public class PatchStackTraceToString
@@ -3469,8 +3461,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // Sanitize Exception.StackTrace property — any exception thrown through our
-    // patched code could contain mod frames that get logged/sent to telemetry.
     [HarmonyPatch(typeof(Exception), "StackTrace", MethodType.Getter)]
     [HarmonyPriority(Priority.Last)]
     public class PatchExceptionStackTrace
@@ -3487,7 +3477,6 @@ namespace SignalSafetyMenu.Patches
         }
     }
 
-    // Helper class for stack trace sanitization
     internal static class StealthHelper
     {
         internal static string SanitizeStackTrace(string trace)

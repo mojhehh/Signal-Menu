@@ -38,6 +38,7 @@ namespace SignalSafetyMenu
             Log("Checking environment...");
 
             gameObject.AddComponent<Menu3D>();
+            gameObject.AddComponent<Popup3D>();
 
             if (SafetyConfig.UseCustomTheme)
                 ThemeManager.LoadUserPalette();

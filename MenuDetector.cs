@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -156,7 +156,6 @@ namespace SignalSafetyMenu
                             string typeName = type.FullName ?? "";
                             string className = type.Name ?? "";
                             
-                            // Check for exact menu type names, not just substrings
                             bool isMenu = false;
                             string label = "";
                             

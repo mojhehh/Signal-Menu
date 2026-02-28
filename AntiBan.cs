@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using Photon.Pun;
 using Photon.Realtime;
@@ -9,27 +10,8 @@ using GorillaNetworking;
 
 namespace SignalSafetyMenu
 {
-    /// <summary>
-    /// AntiBan system — makes you unbannable in a room by:
-    /// 1. Kicking all other players via event 202 RPC flood (same as SignalMenuFork Overpowered.KickAll)
-    /// 2. Becoming master client (you're the lowest actor number since everyone else left)
-    /// 3. Making the room invisible via Photon op 252 (IsVisible=false → SessionIsPrivate=true)
-    /// 4. Keeping the gamemode as DEFAULT queue so it doesn't flag as MODDED
-    ///
-    /// Server-side anti-cheat (GorillaNot/MonkeAgent) sends reports via event code 8
-    /// with WebFlags(3) which HTTP-forwards to the server webhook. The webhook ignores
-    /// or heavily discounts reports from private rooms (SessionIsPrivate = !IsVisible).
-    ///
-    /// Key detail: IsOpen stays TRUE so friends can still join with the room code.
-    /// Only IsVisible is set to false. This is what makes the server see it as "private".
-    ///
-    /// GorillaNot.CheckReports() validates that MasterClient == LowestActorNumber().
-    /// After kicking everyone, we are the only player → lowest actor → legitimate master.
-    /// When friends rejoin, they get higher actor numbers, so we stay valid master.
-    /// </summary>
     public static class AntiBan
     {
-        // ── State ──────────────────────────────────────────────────
         public static bool IsActive { get; private set; } = false;
         public static bool IsRunning { get; private set; } = false;
         public static string Status { get; private set; } = "Idle";
@@ -40,13 +22,7 @@ namespace SignalSafetyMenu
         private static float _lastStatusUpdate;
         private static byte _savedMaxPlayers = 10;
 
-        // ── Public API ─────────────────────────────────────────────
 
-        /// <summary>
-        /// Start the full anti-ban sequence: kick all → become master → make private.
-        /// CRITICAL: Must make room private IMMEDIATELY before kicking to prevent
-        /// MonkeAgent from triggering "room host force changed" reports!
-        /// </summary>
         public static void RunAntiBan()
         {
             if (IsRunning)
@@ -62,14 +38,12 @@ namespace SignalSafetyMenu
                 return;
             }
 
-            // Save original max players before we start
             try { _savedMaxPlayers = PhotonNetwork.CurrentRoom.MaxPlayers; }
             catch { _savedMaxPlayers = 10; }
             if (_savedMaxPlayers <= 0) _savedMaxPlayers = 10;
 
             if (PhotonNetwork.CurrentRoom.PlayerCount <= 1)
             {
-                // Already alone — just lock it down
                 Log("[AntiBan] Room is empty, locking down immediately.");
                 SetRoomPrivate(true);
                 EnsureDefaultQueue();
@@ -81,12 +55,6 @@ namespace SignalSafetyMenu
             _antiBanCoroutine = Plugin.Instance.StartCoroutine(AntiBanSequence());
         }
 
-        /// <summary>
-        /// Set yourself as master client. Use when rejoining a previously anti-banned room.
-        /// The room is already private so GorillaNot reports are discounted by the server.
-        /// Note: GorillaNot will see "room host force changed" but the report goes to the
-        /// server webhook which ignores it because SessionIsPrivate = true (!IsVisible).
-        /// </summary>
         public static void SetMasterClientToSelf()
         {
             if (!PhotonNetwork.InRoom)
@@ -116,17 +84,6 @@ namespace SignalSafetyMenu
             }
         }
 
-        /// <summary>
-        /// Make the current room private (invisible) or public again.
-        ///
-        /// CRITICAL DETAIL: We only set IsVisible=false, NOT IsOpen=false.
-        /// - IsVisible=false → Server sees SessionIsPrivate=true → Discounts all auto-reports
-        /// - IsOpen=true → Friends can still join with the room code
-        /// - MaxPlayers unchanged → Doesn't block people from joining inappropriately
-        ///
-        /// If something else (another mod, network glitch) sets IsOpen=false or MaxPlayers=0,
-        /// it could prevent friends from joining. We monitor and repair this in Update().
-        /// </summary>
         public static void SetRoomPrivate(bool makePrivate)
         {
             if (!PhotonNetwork.InRoom)
@@ -141,25 +98,21 @@ namespace SignalSafetyMenu
 
                 if (makePrivate)
                 {
-                    // CRITICAL: Only set IsVisible=false.
-                    // The server webhook checks `SessionIsPrivate = !IsVisible` to discount reports.
-                    // If we set IsOpen=false, friends cannot join even with the code.
                     props = new ExitGames.Client.Photon.Hashtable
                     {
-                        { 254, false }  // IsVisible = false
+                        { 254, false }
                     };
                     Log("[AntiBan] Setting IsVisible=false (SessionIsPrivate=true for server)");
                 }
                 else
                 {
-                    // Restore room to fully public
                     byte maxP = _savedMaxPlayers;
                     if (maxP <= 0) maxP = 10;
                     props = new ExitGames.Client.Photon.Hashtable
                     {
-                        { 253, true },     // IsOpen = true
-                        { 254, true },     // IsVisible = true
-                        { 255, maxP }      // MaxPlayers = original
+                        { 253, true },
+                        { 254, true },
+                        { 255, maxP }
                     };
                     Log("[AntiBan] Restoring room to PUBLIC");
                 }
@@ -167,20 +120,19 @@ namespace SignalSafetyMenu
                 Dictionary<byte, object> opData = new Dictionary<byte, object>
                 {
                     { 251, props },
-                    { 250, true },   // Broadcast change to all clients
-                    { 231, null }    // No expected values (unconditional set)
+                    { 250, true },
+                    { 231, null }
                 };
 
                 PhotonNetwork.CurrentRoom.LoadBalancingClient.LoadBalancingPeer.SendOperation(
                     252, opData, SendOptions.SendReliable
                 );
 
-                // Update scoreboard to reflect the change
                 try { GorillaScoreboardTotalUpdater.instance?.UpdateActiveScoreboards(); } catch { }
 
                 if (makePrivate)
                 {
-                    Log("[AntiBan] Room privacy applied — server will now discount auto-generated reports");
+                    Log("[AntiBan] Room privacy applied â€” server will now discount auto-generated reports");
                 }
             }
             catch (Exception ex)
@@ -189,9 +141,6 @@ namespace SignalSafetyMenu
             }
         }
 
-        /// <summary>
-        /// Disable antiban and re-open the room.
-        /// </summary>
         public static void Disable()
         {
             if (_antiBanCoroutine != null)
@@ -208,14 +157,10 @@ namespace SignalSafetyMenu
             if (PhotonNetwork.InRoom)
             {
                 SetRoomPrivate(false);
-                Log("[AntiBan] Disabled — room re-opened.");
+                Log("[AntiBan] Disabled â€” room re-opened.");
             }
         }
 
-        /// <summary>
-        /// Called from Plugin.Update() — updates status display and maintains room privacy.
-        /// Validates that the room stays private and that master client remains valid.
-        /// </summary>
         public static void Update()
         {
             if (!SafetyConfig.AntiBanEnabled) return;
@@ -231,13 +176,11 @@ namespace SignalSafetyMenu
                 return;
             }
 
-            // Periodic validation and status update
             if (IsActive && Time.time - _lastStatusUpdate > 2f)
             {
                 _lastStatusUpdate = Time.time;
                 PlayersInRoom = PhotonNetwork.CurrentRoom.PlayerCount;
 
-                // CRITICAL: Verify room is still private
                 try
                 {
                     if (PhotonNetwork.CurrentRoom.IsVisible)
@@ -250,7 +193,6 @@ namespace SignalSafetyMenu
                 }
                 catch { }
 
-                // CRITICAL: Verify master client is still us
                 try
                 {
                     if (!PhotonNetwork.IsMasterClient)
@@ -263,8 +205,6 @@ namespace SignalSafetyMenu
                 }
                 catch { }
 
-                // CRITICAL: If there are other players, verify they're legitimate rejoiners
-                // and that I'm still the lowest actor number
                 try
                 {
                     if (PhotonNetwork.PlayerListOthers.Length > 0)
@@ -295,7 +235,6 @@ namespace SignalSafetyMenu
             }
         }
 
-        // ── Core Sequence ──────────────────────────────────────────
 
         private static IEnumerator AntiBanSequence()
         {
@@ -306,21 +245,11 @@ namespace SignalSafetyMenu
 
             Log("[AntiBan] Starting anti-ban sequence...");
             
-            // CRITICAL RACE CONDITION FIX:
-            // Make the room private IMMEDIATELY, before kicking anyone.
-            // This prevents MonkeAgent from triggering "room host force changed" reports
-            // that would be forwarded to the server if the room is still public.
-            // By the time MonkeAgent sees the master client change, the room will already
-            // be marked IsVisible=false, making the server treat it as SessionIsPrivate=true
-            // and discount all auto-generated reports.
             Log("[AntiBan] Phase 0: Making room invisible FIRST (before kicking)...");
             Status = "Securing room...";
             SetRoomPrivate(true);
             yield return new WaitForSeconds(1f);
 
-            // Step 1: Kick all other players by RPC flooding the master client.
-            // Now that the room is private, any "room host force changed" reports
-            // will be ignored by the server webhook.
             Status = "Kicking players...";
             int totalOthers = PhotonNetwork.PlayerListOthers.Length;
 
@@ -336,9 +265,8 @@ namespace SignalSafetyMenu
 
                 if (PhotonNetwork.IsMasterClient)
                 {
-                    // We're master — flood remaining players directly to disconnect them
                     Log($"[AntiBan] We are master, flooding {PhotonNetwork.PlayerListOthers.Length} remaining player(s)...");
-                    Status = $"Master — kicking remaining ({PhotonNetwork.PlayerListOthers.Length} left)";
+                    Status = $"Master â€” kicking remaining ({PhotonNetwork.PlayerListOthers.Length} left)";
 
                     Player[] others = PhotonNetwork.PlayerListOthers;
                     foreach (var player in others)
@@ -346,12 +274,10 @@ namespace SignalSafetyMenu
                         try { FloodKickPlayer(player); } catch { }
                     }
 
-                    // Wait for them to actually leave
                     yield return new WaitForSeconds(5f);
                     continue;
                 }
 
-                // Not master yet — flood the current master to force disconnect/transfer
                 Player currentMaster = PhotonNetwork.MasterClient;
                 if (currentMaster == null) break;
 
@@ -359,17 +285,14 @@ namespace SignalSafetyMenu
                 Log($"[AntiBan] Kicking master: {masterName}");
                 Status = $"Kicking: {masterName}";
 
-                // Send ONE burst of 3965 events (same as reference Overpowered.KickAll)
                 float burstTime = Time.time;
                 SendKickBurst();
 
-                // Poll until master changes or 10-second timeout
                 float kickTimeout = Time.time + 10f;
                 while (PhotonNetwork.InRoom && PhotonNetwork.MasterClient == currentMaster)
                 {
                     if (Time.time > kickTimeout)
                     {
-                        // Timeout — send another burst and reset timer
                         Log($"[AntiBan] Kick timeout on {masterName}, retrying burst...");
                         Status = $"Retrying: {masterName}";
                         SendKickBurst();
@@ -386,7 +309,6 @@ namespace SignalSafetyMenu
                     yield break;
                 }
 
-                // Master changed — they got kicked
                 if (PhotonNetwork.MasterClient != currentMaster)
                 {
                     PlayersKicked++;
@@ -394,8 +316,6 @@ namespace SignalSafetyMenu
                     Log($"[AntiBan] Kicked {masterName} in {elapsed:F1}s. ({PlayersKicked}/{totalOthers})");
                     Status = $"Kicked {PlayersKicked}/{totalOthers}";
 
-                    // Wait between kicks — longer if the kick was quick (to avoid rate limiting)
-                    // Reference uses: quick kick (<2.5s) → wait 10s, slow kick → wait 5s
                     int waitTime = elapsed < 2.5f ? 10 : 5;
                     Log($"[AntiBan] Waiting {waitTime}s before next kick...");
                     yield return new WaitForSeconds(waitTime);
@@ -409,11 +329,9 @@ namespace SignalSafetyMenu
                 yield break;
             }
 
-            // Step 2: Verify master client status and actor number
-            // After kicking everyone, we SHOULD be the lowest actor number
             if (!PhotonNetwork.IsMasterClient)
             {
-                Log("[AntiBan] Not master after kicking — attempting SetMasterClient...");
+                Log("[AntiBan] Not master after kicking â€” attempting SetMasterClient...");
                 Status = "Verifying master status...";
                 try { PhotonNetwork.SetMasterClient(PhotonNetwork.LocalPlayer); } catch { }
                 yield return new WaitForSeconds(1f);
@@ -432,8 +350,6 @@ namespace SignalSafetyMenu
                 yield return new WaitForSeconds(2f);
             }
 
-            // Step 3: Verify room is actually private
-            // (Network conditions might cause the property to not sync)
             Log("[AntiBan] Phase 3: Verifying room privacy...");
             Status = "Verifying privacy...";
             try
@@ -445,7 +361,7 @@ namespace SignalSafetyMenu
                 }
                 else
                 {
-                    Log("[AntiBan] Room privacy confirmed (IsVisible=false → SessionIsPrivate=true)");
+                    Log("[AntiBan] Room privacy confirmed (IsVisible=false â†’ SessionIsPrivate=true)");
                 }
             }
             catch (Exception ex)
@@ -454,7 +370,6 @@ namespace SignalSafetyMenu
             }
             yield return new WaitForSeconds(1f);
 
-            // Step 4: Ensure gamemode queue is DEFAULT (not MODDED/COMPETITIVE)
             try
             {
                 EnsureDefaultQueue();
@@ -464,8 +379,6 @@ namespace SignalSafetyMenu
                 Log($"[AntiBan] Gamemode set warning: {ex.Message}");
             }
 
-            // Step 5: Final validation
-            // Make sure nobody slipped in during the process
             if (PhotonNetwork.PlayerListOthers.Length > 0)
             {
                 Log($"[AntiBan] WARNING: {PhotonNetwork.PlayerListOthers.Length} players joined during sequence! Mopping up...");
@@ -477,11 +390,10 @@ namespace SignalSafetyMenu
                 yield return new WaitForSeconds(3f);
             }
 
-            // Done
             IsRunning = false;
             IsActive = true;
             PlayersInRoom = PhotonNetwork.CurrentRoom.PlayerCount;
-            Status = "Active — room anti-banned";
+            Status = "Active â€” room anti-banned";
             _antiBanCoroutine = null;
 
             Log($"[AntiBan] Anti-ban ACTIVE! Kicked {PlayersKicked} players. Room is private & secure.");
@@ -489,15 +401,7 @@ namespace SignalSafetyMenu
             Log("[AntiBan] Friends can rejoin with the room code.");
         }
 
-        // ── Helpers ────────────────────────────────────────────────
 
-        /// <summary>
-        /// Send a single burst of 3965 event-202 packets targeting MasterClient.
-        /// This is the exact same technique as SignalMenuFork Overpowered.KickAll().
-        /// Event 202 is Photon's RPC event — flooding it overloads the target's message queue.
-        /// NOTE: We use a fixed fake ViewID (0) to avoid exhausting the ViewID pool.
-        /// AllocateViewID(0) was previously called per-iteration, leaking 3965 IDs per burst.
-        /// </summary>
         private static void SendKickBurst()
         {
             try
@@ -523,10 +427,6 @@ namespace SignalSafetyMenu
             }
         }
 
-        /// <summary>
-        /// Flood a specific player with event-202 packets to disconnect them.
-        /// Used when we're already master and need to remove remaining players.
-        /// </summary>
         private static void FloodKickPlayer(Player target)
         {
             if (target == null || target.IsLocal) return;
@@ -551,23 +451,12 @@ namespace SignalSafetyMenu
             catch { }
         }
 
-        /// <summary>
-        /// Ensure the room's gameMode property uses the DEFAULT queue (not MODDED/COMPETITIVE).
-        ///
-        /// The game's gameMode format is: "networkZone|queue|gameType"
-        /// Example: "forest|DEFAULT|SuperInfect"
-        /// (from GorillaNetworkJoinTrigger.GetFullDesiredGameModeString())
-        ///
-        /// We read the current gameMode, parse out the zone and gameType, and rebuild it
-        /// with "DEFAULT" as the queue. This ensures GorillaNot doesn't flag it as invalid.
-        /// </summary>
         private static void EnsureDefaultQueue()
         {
             if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null) return;
 
             try
             {
-                // Read current gameMode from room properties
                 string currentGameMode = "";
                 try
                 {
@@ -583,7 +472,6 @@ namespace SignalSafetyMenu
                     return;
                 }
 
-                // Parse the pipe-delimited format: "zone|queue|gameType"
                 string[] parts = currentGameMode.Split('|');
 
                 string zone;
@@ -591,29 +479,23 @@ namespace SignalSafetyMenu
 
                 if (parts.Length >= 3)
                 {
-                    // Standard format: zone|queue|gameType
                     zone = parts[0];
                     gameType = parts[2];
                 }
                 else if (parts.Length == 2)
                 {
-                    // Partial format: zone|gameType (unlikely, but safe)
                     zone = parts[0];
                     gameType = parts[1];
                 }
                 else
                 {
-                    // Unexpected format — try getting zone from controller
                     try { zone = PhotonNetworkController.Instance.currentJoinTrigger.networkZone; }
                     catch { zone = "forest"; }
                     gameType = currentGameMode;
                 }
 
-                // Rebuild with DEFAULT queue — this is the normal casual queue
-                // (GorillaComputer reads currentQueue from PlayerPrefs, defaults to "DEFAULT")
                 string newGameMode = zone + "|DEFAULT|" + gameType;
 
-                // Only update if it actually changed
                 if (newGameMode == currentGameMode)
                 {
                     Log($"[AntiBan] Gamemode already correct: {currentGameMode}");
@@ -626,7 +508,7 @@ namespace SignalSafetyMenu
                 };
                 PhotonNetwork.CurrentRoom.SetCustomProperties(hash);
 
-                Log($"[AntiBan] Gamemode set: {currentGameMode} → {newGameMode}");
+                Log($"[AntiBan] Gamemode set: {currentGameMode} â†’ {newGameMode}");
             }
             catch (Exception ex)
             {
@@ -637,6 +519,113 @@ namespace SignalSafetyMenu
         private static void Log(string message)
         {
             try { Plugin.Instance?.Log(message); } catch { }
+        }
+
+        public static void MakeNewPublicRoom()
+        {
+            if (IsRunning)
+            {
+                Log("[AntiBan] Can't create room while anti-ban is running.");
+                Status = "Error: AntiBan running";
+                return;
+            }
+
+            try
+            {
+                Plugin.Instance?.StartCoroutine(CreatePublicRoomCoroutine());
+            }
+            catch (Exception ex)
+            {
+                Log($"[AntiBan] MakeNewPublicRoom error: {ex.Message}");
+            }
+        }
+
+        private static IEnumerator CreatePublicRoomCoroutine()
+        {
+            if (PhotonNetwork.InRoom || NetworkSystem.Instance.InRoom)
+            {
+                Log("[AntiBan] Leaving current room...");
+                try { NetworkSystem.Instance.ReturnToSinglePlayer(); } catch { }
+                
+                float timeout = Time.time + 8f;
+                while ((PhotonNetwork.InRoom || NetworkSystem.Instance.InRoom) && Time.time < timeout)
+                {
+                    yield return null;
+                }
+                yield return new WaitForSeconds(1.5f);
+            }
+
+            GorillaNetworkJoinTrigger trigger = null;
+            try
+            {
+                trigger = PhotonNetworkController.Instance.currentJoinTrigger;
+                if (trigger == null)
+                    trigger = GorillaComputer.instance.GetJoinTriggerForZone("forest");
+            }
+            catch
+            {
+                try { trigger = GorillaComputer.instance.GetJoinTriggerForZone("forest"); } catch { }
+            }
+
+            if (trigger == null)
+            {
+                Log("[AntiBan] ERROR: No join trigger found, can't create room.");
+                Status = "Error: No join trigger";
+                yield break;
+            }
+
+            string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            char[] code = new char[4];
+            for (int i = 0; i < 4; i++)
+                code[i] = chars[UnityEngine.Random.Range(0, chars.Length)];
+            string roomName = new string(code);
+
+            string queue = "DEFAULT";
+            try { queue = GorillaComputer.instance.currentQueue ?? "DEFAULT"; } catch { }
+
+            string platform = "STEAM";
+            try { platform = PhotonNetworkController.Instance.platformTag ?? "STEAM"; } catch { }
+
+            string gameMode = "";
+            try { gameMode = trigger.GetFullDesiredGameModeString(); } catch { gameMode = "forest|DEFAULT|INFECTION"; }
+
+            byte maxPlayers = 10;
+
+            RoomConfig roomConfig = new RoomConfig
+            {
+                createIfMissing = true,
+                isJoinable = true,
+                isPublic = true,
+                MaxPlayers = maxPlayers,
+                CustomProps = new ExitGames.Client.Photon.Hashtable
+                {
+                    { "gameMode", gameMode },
+                    { "platform", platform },
+                    { "queueName", queue }
+                }
+            };
+
+            Log($"[AntiBan] Creating new public room: {roomName} | {gameMode} | {queue}");
+
+            try
+            {
+                PhotonNetworkController.Instance.currentJoinType = JoinType.Solo;
+                NetworkSystem.Instance.ConnectToRoom(roomName, roomConfig);
+            }
+            catch (Exception ex)
+            {
+                Log($"[AntiBan] ConnectToRoom failed: {ex.Message}");
+                try
+                {
+                    PhotonNetworkController.Instance.AttemptToJoinPublicRoom(trigger);
+                    Log("[AntiBan] Fallback: AttemptToJoinPublicRoom called.");
+                }
+                catch (Exception ex2)
+                {
+                    Log($"[AntiBan] Fallback also failed: {ex2.Message}");
+                    Status = "Error: Can't create room";
+                }
+            }
         }
     }
 }
